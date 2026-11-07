@@ -881,14 +881,27 @@ func apiApps(w http.ResponseWriter, r *http.Request) {
 	list, _ := readList()
 	type view struct {
 		Manifest
-		Running    bool   `json:"running"`
-		Container  string `json:"containerState"`
-		Registered bool   `json:"registered"`
+		Running           bool   `json:"running"`
+		Container         string `json:"containerState"`
+		Registered        bool   `json:"registered"`
+		VendorUninstalled bool   `json:"vendorUninstalled"` // 厂商插件中心卸过：条目在但 frontend 被清空
 	}
 	apps := []view{}
 	for _, m := range cat.Apps {
 		cn := containerName(&m)
-		apps = append(apps, view{Manifest: m, Container: st[cn], Running: st[cn] == "running", Registered: list[m.ID] != nil})
+		reg, vu := false, false
+		if raw := list[m.ID]; raw != nil {
+			var e struct {
+				Frontend map[string]any `json:"frontend"`
+			}
+			_ = json.Unmarshal(raw, &e)
+			if len(e.Frontend) > 0 {
+				reg = true
+			} else {
+				vu = true
+			}
+		}
+		apps = append(apps, view{Manifest: m, Container: st[cn], Running: st[cn] == "running", Registered: reg, VendorUninstalled: vu})
 	}
 	jsonOut(w, 200, map[string]any{"apps": apps, "nasIP": C.nasIP})
 }

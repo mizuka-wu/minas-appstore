@@ -104,10 +104,11 @@ async function load(){
       '<span class="chip n">端口 '+portTxt+'</span>',
       a.beta?'<span class="chip warn">β 未实测</span>':'',
       a.running?'<span class="chip ok">运行中</span>':(a.containerState?'<span class="chip warn">'+esc(a.containerState)+'</span>':'<span class="chip n">未安装</span>'),
-      a.registered?'<span class="chip ok">应用中心 ✓</span>':''
+      a.registered?'<span class="chip ok">应用中心 ✓</span>':(a.vendorUninstalled?'<span class="chip warn">入口已被米家卸载 · 按卸载可清容器</span>':'')
     ].join('');
+  document.getElementById('apps').insertAdjacentHTML('beforeend','<div style="grid-column:1/-1;font-size:12px;opacity:.65;line-height:1.6;padding:2px 4px">※ 安装/更新/卸载请以本商店为准。在米家 App 插件中心里卸载只会摘走入口卡片，容器和数据依然在本机运行——回到此处按「卸载」才会彻底清理。</div>');
     const open=a.running&&port?'<a class="open" href="http://'+d.nasIP+':'+port+'/" target="_blank">打开 ↗</a>':'';
-    const acts=a.running?('<button class="gray" onclick="act(\'update\',\''+a.id+'\')">更新</button><button class="red" onclick="act(\'uninstall\',\''+a.id+'\')">卸载</button>'+open):
+    const acts=a.containerState?(open+(a.running?'<button class="gray" onclick="act(\'update\',\''+a.id+'\')">更新</button>':'')+'<button class="red" onclick="act(\'uninstall\',\''+a.id+'\')">卸载</button>'):
       ('<button onclick="act(\'install\',\''+a.id+'\')">安装</button>');
     return '<div class="card"><div class="row1">'+dot+'<span class="name">'+esc(a.name)+'</span><span class="ver">v'+esc(a.version)+'</span>'+(a.beta?'<span class="beta">β</span>':'')+'</div>'+
       '<div class="desc">'+esc(a.desc)+'</div><div class="chips">'+chips+'</div><div class="acts">'+acts+'</div></div>';

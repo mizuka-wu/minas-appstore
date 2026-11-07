@@ -111,34 +111,35 @@
       "postShell": "echo '隧道就绪后在 CF Zero Trust 配 Public Hostname 指向 NAS 服务；metrics: http://{{NAS_IP}}:20240'"
     },
     {
-      "id": "homebridge",
-      "name": "Homebridge (+miot)",
-      "desc": "把米家设备桥接进 HomeKit。homebridge-miot 是 homebridge 的插件而非独立应用——本商品一体安装：起官方 homebridge 容器后自动 npm 装 miot 插件并重启。登录/配设备建议电脑浏览器开 UI",
-      "version": "latest",
-      "registerId": 904,
-      "iconFile": "homebridge.png",
+      "id": "homeassistant",
+      "name": "Home Assistant",
+      "desc": "β 未在 MINAS 实测。智能家居中枢：一体自带米家集成(xiaomi-miot)，可再经 HomeKit Bridge 桥给苹果家庭。host 网络 :8123，数据库放 pool 盘护 eMMC。登录配置建议电脑浏览器",
+      "version": "stable",
+      "beta": true,
+      "registerId": 908,
+      "iconFile": "homeassistant.png",
       "docker": {
-        "image": "homebridge/homebridge:legacy",
+        "image": "homeassistant/home-assistant:stable",
         "network": "host",
         "ports": [
-          "8581"
+          "8123"
         ],
         "volumes": [
-          "{{DATA}}:/homebridge"
+          "{{DATA}}/config:/config",
+          "{{POOL}}/.ha-db:/db",
+          "{{POOL}}:/media"
         ],
         "env": {
-          "TZ": "Asia/Shanghai",
-          "ENABLE_AVAHI": "1"
+          "TZ": "Asia/Shanghai"
         },
-        "memory": "384m",
-        "cpus": "1.0"
+        "memory": "768m",
+        "cpus": "2.0"
       },
       "health": {
-        "url": "http://127.0.0.1:8581/",
+        "url": "http://127.0.0.1:8123/",
         "timeoutSec": 600
       },
-      "subPathBase": true,
-      "postShell": "{{DOCKER}} exec homebridge npm --prefix /var/lib/homebridge install homebridge-miot && {{DOCKER}} restart homebridge && echo 'homebridge-miot 已装好，去 UI(:8581) 配插件即可'"
+      "postShell": "{{DOCKER}} exec homeassistant pip install --quiet hass-xiaomi-miot && printf '\\nrecorder:\\n  db_url: sqlite:////db/hass_v2.db\\n' >> /config/configuration.yaml && {{DOCKER}} restart homeassistant && echo '米家集成已装好，去 :8123 设置→设备与集成→Xiaomi Miot 登录'"
     },
     {
       "id": "emby",
