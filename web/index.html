@@ -97,7 +97,9 @@ function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>'
 async function pullCat(){try{const d=await api('api/catalog',{method:'POST'});alert(d.ok||('刷新失败: '+(d.error||'?')));loadCat();load();}catch(e){alert('刷新失败 '+e)}}
 async function loadCat(){try{const c=await api('api/catalog');document.getElementById('catinfo').textContent='货架 '+(c.sources||[]).join(' + ')+' · '+c.apps+' 商品 · 更新 '+c.updated;}catch(e){}}
 async function load(){
+  try{
   const d=await api('api/apps');
+  if(d.error){throw new Error(d.error)}
   appCache={};(d.apps||[]).forEach(a=>appCache[a.id]=a);
   document.getElementById('apps').innerHTML=(d.apps||[]).map(a=>{
     const ps=(a.docker.ports[0]||'').split(':'),port=ps.length>=3?ps[1]:ps[0];
@@ -118,6 +120,7 @@ async function load(){
     return '<div class="card"><div class="row1">'+dot+'<span class="name">'+esc(a.name)+'</span><span class="ver">v'+esc(a.version)+'</span>'+(a.beta?'<span class="beta">β</span>':'')+'</div>'+
       '<div class="desc">'+esc(a.desc)+'</div><div class="chips">'+chips+'</div><div class="acts">'+acts+'</div></div>';
   }).join('')||'<div class="empty">目录是空的</div>';
+  }catch(e){document.getElementById('apps').innerHTML='<div class="empty">加载失败: '+esc(String(e))+'<br>令牌没配对? <button onclick="tgTok()">设置令牌</button> · <button onclick="load()">重试</button></div>'}
 }
 let appCache={};
 function act(action,id){

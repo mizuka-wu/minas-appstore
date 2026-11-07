@@ -1342,6 +1342,21 @@ func main() {
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// 厂商 WebView 固定请求 /index.html，两个入口都要给页面
+		if r.URL.Path == "/index.html" {
+			// 商店自己已住应用中心：index.html 兜底 301 到同源前缀目录形。
+			// WebView 里无尾斜杠地址会让相对 api/* 爬一级打到 vendor 网关永挂(实机定罪)；
+			// 前缀从请求头还原(经 uc 反代时 Host 是厂商侧)。直连 8400 无头 → 给页面不弹环。
+			if pfx := r.Header.Get("X-Forwarded-Prefix"); pfx != "" {
+				target := pfx + "/"
+				if r.URL.Fragment != "" {
+					target += "#" + r.URL.Fragment
+				} else if q := r.URL.RawQuery; q != "" {
+					target += "?" + q
+				}
+				http.Redirect(w, r, target, http.StatusFound)
+				return
+			}
+		}
 		if r.URL.Path != "/" && r.URL.Path != "/index.html" {
 			http.NotFound(w, r)
 			return
