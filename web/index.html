@@ -47,7 +47,7 @@ let curTask=null,poll=null;
 async function api(p,opt){opt=opt||{};opt.headers=Object.assign({'X-Store-Token':tok()},opt.headers||{});return (await fetch(p,opt)).json()}
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 async function load(){
-  const d=await api('/api/apps');
+  const d=await api('api/apps');
   appCache={};(d.apps||[]).forEach(a=>appCache[a.id]=a);
   document.getElementById('apps').innerHTML=(d.apps||[]).map(a=>{
     const ps=(a.docker.ports[0]||'').split(':'),port=ps.length>=3?ps[1]:ps[0];
@@ -78,7 +78,7 @@ function act(action,id){
   document.getElementById('parambox').style.display='block';
 }
 async function send(action,id,params){
-  const r=await api('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action,params})});
+  const r=await api('api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action,params})});
   if(r.error)return alert(r.error);
   curTask=r.taskId;document.getElementById('taskbox').style.display='block';
   document.getElementById('taskname').textContent=action+' '+id+' …';
@@ -98,7 +98,7 @@ function submitParams(){
 function closeParams(){document.getElementById('parambox').style.display='none';pending=null}
 async function pollTask(){
   if(!curTask)return;
-  const t=await api('/api/task?id='+curTask);
+  const t=await api('api/task?id='+curTask);
   if(t.error)return;
   const el=document.getElementById('log');
   el.textContent=(t.log||[]).join('\n');el.scrollTop=el.scrollHeight;
@@ -108,7 +108,7 @@ function closeTask(){curTask=null;clearInterval(poll);document.getElementById('t
 document.getElementById('tok').value=tok();load();loadNat();setInterval(()=>{if(!curTask){load();loadNat()}},10000);
 async function loadNat(){
   try{
-    const n=await api('/api/nat');const el=document.getElementById('natcard');el.style.display='block';
+    const n=await api('api/nat');const el=document.getElementById('natcard');el.style.display='block';
     const chips=[n.rule?'<span class="chip ok">出网规则在位</span>':'<span class="chip bad">出网规则缺失</span>',
       n.unit?'<span class="chip ok">boot unit 已装</span>':'<span class="chip">无 boot unit（重启后需再注入）</span>'].join('');
     el.innerHTML='<span class="name">容器出网 NAT</span><div class="chips">'+chips+'</div>'+
@@ -117,7 +117,7 @@ async function loadNat(){
 }
 async function natAct(a){
   if(a==='remove'&&!confirm('卸载 MASQUERADE 规则？所有 bridge 容器（qb/anirss…）会立刻断网。'))return;
-  const r=await api('/api/nat?action='+a,{method:'POST'});
+  const r=await api('api/nat?action='+a,{method:'POST'});
   if(r.error)return alert(r.error);
   loadNat();
 }
