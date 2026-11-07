@@ -22,10 +22,14 @@
     {
       "id": "qbittorrent",
       "name": "qBittorrent",
-      "desc": "BT/磁力下载。首启临时 WebUI 密码在容器日志（docker logs qbittorrent），每次重启会变，登录后立刻改固定密码；默认保存路径 /media/番剧",
+      "desc": "BT/磁力下载。安装时设 WebUI 固定密码与默认保存路径，装完即用，无临时密码环节",
       "version": "latest",
       "registerId": 902,
       "iconFile": "qbittorrent.png",
+      "params": [
+        { "name": "QB_PASSWORD", "label": "WebUI 密码（admin 登录用）", "type": "password", "required": true },
+        { "name": "QB_SAVE_PATH", "label": "默认保存路径（须在 /media 用户库树内）", "default": "/media/番剧" }
+      ],
       "docker": {
         "image": "lscr.io/linuxserver/qbittorrent:latest",
         "ports": ["8200:8200"],
@@ -35,15 +39,18 @@
         "cpus": "1.5"
       },
       "health": { "url": "http://127.0.0.1:8200/", "timeoutSec": 90 },
-      "postShell": "echo '提示: docker logs qbittorrent | grep -i password 取临时密码'"
+      "postShell": "sleep 3; TMP=$( {{DOCKER}} logs qbittorrent 2>&1 | grep -i 'temporary password' | tail -1 | awk '{print $NF}' ); J=/tmp/.qbcj-$$; curl -s --max-time 10 -c $J -X POST --data-urlencode 'username=admin' --data-urlencode \"password=$TMP\" http://127.0.0.1:8200/api/v2/auth/login >/dev/null && curl -s --max-time 10 -b $J -X POST --data-urlencode 'json={\"webui_password\":\"{{ENV:QB_PASSWORD}}\",\"webui_password_save\":true}' http://127.0.0.1:8200/api/v2/app/setPreferences && curl -s --max-time 10 -b $J -X POST --data-urlencode 'json={\"save_path\":\"{{ENV:QB_SAVE_PATH}}\"}' http://127.0.0.1:8200/api/v2/app/setPreferences >/dev/null; curl -s --max-time 10 -b $J http://127.0.0.1:8200/api/v2/app/defaultSavePath; rm -f $J; echo ' ← WebUI 密码与保存路径已按安装参数设置'"
     },
     {
       "id": "cftunnel",
       "name": "Cloudflare Tunnel",
-      "desc": "免公网IP免端口映射，把 NAS 服务经 Cloudflare 定点暴露（Zero Trust 远程托管隧道）。token 放 store 的 systemd 环境变量，装前先在 CF 后台建 Tunnel 拿 token",
+      "desc": "免公网IP免端口映射，把 NAS 服务经 Cloudflare 定点暴露（Zero Trust 远程托管隧道）。装前在 CF 后台建 Tunnel 复制 token",
       "version": "latest",
       "registerId": 903,
       "iconFile": "cftunnel.png",
+      "params": [
+        { "name": "CF_TUNNEL_TOKEN", "label": "Tunnel Token（CF Zero Trust → Networks → Tunnels 复制）", "type": "password", "required": true }
+      ],
       "docker": {
         "image": "cloudflare/cloudflared:latest",
         "command": ["tunnel", "--no-autoupdate", "run", "--token", "{{ENV:CF_TUNNEL_TOKEN}}"],

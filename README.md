@@ -25,7 +25,10 @@ docker 安装引擎 + 米家应用中心自动注册。**不依赖 SSH、不依�
 
 ## 上架一个新应用 = catalog.json 加一条
 
-见 `schema/manifest-v1.schema.json`。模板变量：`{{DATA}}` `{{POOL}}` `{{NAS_IP}}` `{{UID}}` `{{HOST_PORT}}`。
+见 `schema/manifest-v1.schema.json`。模板变量：`{{DATA}}` `{{POOL}}` `{{NAS_IP}}` `{{UID}}` `{{DOCKER}}` `{{HOST_PORT}}`。
+需要用户填的东西（密码/token/路径）声明成 `params` → 商店 UI 弹安装表单，值经
+`{{ENV:NAME}}` 注入 command/env/postShell；**日志全程打码、API 永不回显**，
+解析顺序 = 表单 > store 进程环境 > default（qB 密码、CF token 都是这么进去的）。
 关键坑都焊死在实现里：
 
 - 应用中心 key 禁连字符（`^[a-z][a-z0-9_]{0,31}$` 校验）

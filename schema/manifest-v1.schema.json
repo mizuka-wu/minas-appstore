@@ -41,7 +41,22 @@
             "timeoutSec": { "type": "integer", "default": 90 }
           }
         },
-        "postShell": { "type": "string", "description": "可选后置钩子；模板变量 {{DATA}} {{POOL}} {{NAS_IP}} {{UID}} {{HOST_PORT}}；env 附 NAS_IP/NAS_UID/HOST_PORT" }
+        "params": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "label"],
+            "properties": {
+              "name": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9_]*$" },
+              "label": { "type": "string" },
+              "type": { "enum": ["text", "password"], "default": "text" },
+              "default": { "type": "string" },
+              "required": { "type": "boolean", "default": false }
+            }
+          },
+          "description": "安装表单；值经 {{ENV:NAME}} 引用，日志自动打码，API 永不回显。解析顺序：表单 > 进程环境 > default"
+        },
+        "postShell": { "type": "string", "description": "可选后置钩子；模板变量 {{DATA}} {{POOL}} {{NAS_IP}} {{UID}} {{DOCKER}} {{HOST_PORT}}；env 附 NAS_IP/NAS_UID/HOST_PORT" }
       }
     }
   }

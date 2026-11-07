@@ -59,6 +59,14 @@ type HealthSpec struct {
 	TimeoutSec int    `json:"timeoutSec,omitempty"`
 }
 
+type Param struct {
+	Name     string `json:"name"`
+	Label    string `json:"label"`
+	Type     string `json:"type,omitempty"` // password|text（默认 text）
+	Default  string `json:"default,omitempty"`
+	Required bool   `json:"required,omitempty"`
+}
+
 type Manifest struct {
 	ID         string     `json:"id"` // 应用中心 key：必须小写、无连字符
 	Name       string     `json:"name"`
@@ -66,6 +74,7 @@ type Manifest struct {
 	Version    string     `json:"version"`
 	RegisterID int        `json:"registerId"` // INFO.id，自研建议 >=98 且互不重复
 	IconFile   string     `json:"iconFile,omitempty"`
+	Params     []Param    `json:"params,omitempty"` // 安装时表单（值可在模板里用 {{ENV:NAME}} 引用）
 	Docker     DockerSpec `json:"docker"`
 	Health     HealthSpec `json:"health"`
 	PostShell  string     `json:"postShell,omitempty"` // 可选后置钩子（自家店允许 shell）
@@ -109,8 +118,17 @@ func hostPort(m *Manifest) string {
 	return p[len(p)-2]
 }
 
-// {{ENV:NAME}} 从 store 进程环境取值（机密如 CF token 只活在 systemd unit，不进仓库）
+// {{ENV:NAME}} 解析顺序：安装表单参数 > store 进程环境（机密不进仓库；systemd env 是无表单场景的兜底）
 var envRe = regexp.MustCompile(`\{\{ENV:([A-Za-z0-9_]+)\}\}`)
+
+var activeParams map[string]string // 串行 worker 独占，无并发问题
+
+func lookupEnv(name string) string {
+	if v, ok := activeParams[name]; ok && v != "" {
+		return v
+	}
+	return os.Getenv(name)
+}
 
 func containerName(m *Manifest) string {
 	if m.Docker.ContainerName != "" {
@@ -121,20 +139,54 @@ func containerName(m *Manifest) string {
 
 func expand(s string, m *Manifest) string {
 	s = envRe.ReplaceAllStringFunc(s, func(mt string) string {
-		return os.Getenv(envRe.FindStringSubmatch(mt)[1])
+		return lookupEnv(envRe.FindStringSubmatch(mt)[1])
 	})
 	r := strings.NewReplacer(
 		"{{DATA}}", "/data/apps/"+m.ID,
 		"{{POOL}}", "/nas/pool0/u"+C.uid+"/data",
 		"{{NAS_IP}}", C.nasIP,
 		"{{UID}}", C.uid,
+		"{{DOCKER}}", C.dockerBin,
 		"{{HOST_PORT}}", hostPort(m),
 	)
 	return r.Replace(s)
 }
 
-// missingEnvs 安装前预检：manifest 引用的 {{ENV:X}} 缺了就直接失败，别等容器起一半
-func missingEnvs(m *Manifest) []string {
+// resolvedParams 按 显式参数 > 进程环境 > 默认值 归一，返回缺的必填项
+func resolvedParams(m *Manifest, given map[string]string) (map[string]string, []string) {
+	out := map[string]string{}
+	miss := []string{}
+	for _, p := range m.Params {
+		v := given[p.Name]
+		if v == "" {
+			v = os.Getenv(p.Name)
+		}
+		if v == "" {
+			v = p.Default
+		}
+		if v == "" && p.Required {
+			miss = append(miss, p.Label)
+		}
+		out[p.Name] = v
+	}
+	return out, miss
+}
+
+// logSafe 把参数值（如密码/token）从任何日志输出里打码
+func logSafe(s string) string {
+	for _, v := range activeParams {
+		if len(v) >= 3 {
+			s = strings.ReplaceAll(s, v, "••••")
+		}
+	}
+	return s
+}
+
+// missingEnvs 安装前预检：manifest 引用的 {{ENV:X}}（参数与环境都没有）就直接失败，别等容器起一半
+func missingEnvs(m *Manifest, params map[string]string) []string {
+	if params == nil {
+		params = map[string]string{}
+	}
 	texts := append([]string{}, m.Docker.Command...)
 	texts = append(texts, m.Docker.Ports...)
 	texts = append(texts, m.Docker.Volumes...)
@@ -147,7 +199,7 @@ func missingEnvs(m *Manifest) []string {
 		for _, g := range envRe.FindAllStringSubmatch(t, -1) {
 			if !seen[g[1]] {
 				seen[g[1]] = true
-				if os.Getenv(g[1]) == "" {
+				if params[g[1]] == "" && os.Getenv(g[1]) == "" {
 					out = append(out, g[1])
 				}
 			}
@@ -159,13 +211,14 @@ func missingEnvs(m *Manifest) []string {
 // ---------------- 任务队列（串行：eMMC 扛不住并发安装） ----------------
 
 type Task struct {
-	ID      string   `json:"id"`
-	AppID   string   `json:"appId"`
-	Kind    string   `json:"kind"` // install|uninstall|update
-	State   string   `json:"state"`
-	Err     string   `json:"error,omitempty"`
-	Log     []string `json:"log"`
-	Done    bool     `json:"done"`
+	ID      string            `json:"id"`
+	AppID   string            `json:"appId"`
+	Kind    string            `json:"kind"` // install|uninstall|update
+	Params  map[string]string `json:"-"`    // 安装表单值：绝不回显/API 返回
+	State   string            `json:"state"`
+	Err     string            `json:"error,omitempty"`
+	Log     []string          `json:"log"`
+	Done    bool              `json:"done"`
 	started time.Time
 	mu      sync.Mutex
 }
@@ -173,8 +226,8 @@ type Task struct {
 func (t *Task) logf(f string, a ...any) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.Log = append(t.Log, "["+time.Now().Format("15:04:05")+"] "+fmt.Sprintf(f, a...))
-	// 任务日志同步落盘，重启后可查
+	t.Log = append(t.Log, "["+time.Now().Format("15:04:05")+"] "+logSafe(fmt.Sprintf(f, a...)))
+	// 任务日志同步落盘，重启后可查（logSafe 已打码，可放心持久化）
 	if C.assets != "" && !C.dryRun {
 		os.MkdirAll(filepath.Join(C.assets, "tasks"), 0o755)
 		f, _ := os.OpenFile(filepath.Join(C.assets, "tasks", t.ID+".log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
@@ -193,8 +246,8 @@ type Server struct {
 
 var S = &Server{queue: make(chan *Task, 64), tasks: map[string]*Task{}}
 
-func (s *Server) submit(appID, kind string) *Task {
-	t := &Task{ID: time.Now().Format("20060102-150405") + "-" + kind + "-" + appID, AppID: appID, Kind: kind, State: "queued", started: time.Now()}
+func (s *Server) submit(appID, kind string, params map[string]string) *Task {
+	t := &Task{ID: time.Now().Format("20060102-150405") + "-" + kind + "-" + appID, AppID: appID, Kind: kind, Params: params, State: "queued", started: time.Now()}
 	s.mu.Lock()
 	s.tasks[t.ID] = t
 	s.mu.Unlock()
@@ -204,6 +257,7 @@ func (s *Server) submit(appID, kind string) *Task {
 
 func (s *Server) worker() {
 	for t := range s.queue {
+		activeParams = nil // 任务间隔离，防参数串台
 		t.mu.Lock()
 		t.State = "running"
 		t.mu.Unlock()
@@ -524,8 +578,13 @@ func doInstall(t *Task) error {
 	if !keyRe.MatchString(m.ID) {
 		return fmt.Errorf("id %q 不合规（小写字母数字下划线，禁连字符）", m.ID)
 	}
-	if miss := missingEnvs(m); len(miss) > 0 {
-		return fmt.Errorf("缺少环境变量 %v——在 systemd unit 里加 Environment=… 后重启 store", miss)
+	params, missP := resolvedParams(m, t.Params)
+	if len(missP) > 0 {
+		return fmt.Errorf("缺少必填参数: %v", missP)
+	}
+	activeParams = params
+	if miss := missingEnvs(m, params); len(miss) > 0 {
+		return fmt.Errorf("缺少参数 %v——安装表单填写或在 systemd unit 里加 Environment=…", miss)
 	}
 	if st := dockerState()[containerName(m)]; st != "" {
 		return fmt.Errorf("容器 %s 已存在(state=%s)——先卸载或在 catalog 里认领，防止误删别人起的服务", containerName(m), st)
@@ -612,6 +671,11 @@ func doUpdate(t *Task) error {
 	if m == nil {
 		return fmt.Errorf("catalog 中无 %s", t.AppID)
 	}
+	params, missP := resolvedParams(m, t.Params)
+	if len(missP) > 0 {
+		return fmt.Errorf("缺少必填参数: %v", missP)
+	}
+	activeParams = params
 	t.logf("更新: 拉新镜像并重建容器（注册表/配置不动）")
 	if err := runCmd(t, C.dockerBin, "pull", m.Docker.Image); err != nil {
 		return fmt.Errorf("pull 失败: %w", err)
@@ -668,13 +732,27 @@ func apiAction(w http.ResponseWriter, r *http.Request) {
 		jsonOut(w, 401, map[string]string{"error": "bad token"})
 		return
 	}
-	id := r.URL.Query().Get("id")
-	kind := r.URL.Query().Get("action")
+	var req struct {
+		ID     string            `json:"id"`
+		Action string            `json:"action"`
+		Params map[string]string `json:"params"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req) // 允许空 body，兼容纯 query 调用
+	}
+	id := req.ID
+	kind := req.Action
+	if id == "" {
+		id = r.URL.Query().Get("id")
+	}
+	if kind == "" {
+		kind = r.URL.Query().Get("action")
+	}
 	if id == "" || (kind != "install" && kind != "uninstall" && kind != "update") {
 		jsonOut(w, 400, map[string]string{"error": "需要 id 与 action=install|uninstall|update"})
 		return
 	}
-	t := S.submit(id, kind)
+	t := S.submit(id, kind, req.Params)
 	jsonOut(w, 202, map[string]string{"taskId": t.ID})
 }
 

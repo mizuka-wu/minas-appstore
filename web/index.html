@@ -28,6 +28,11 @@ input{background:#0d0f12;border:1px solid #333a48;color:#e8eaf0;border-radius:6p
 <h1>🛒 MINAS 私有应用商店</h1>
 <div class="cfg">令牌 <input id="tok" placeholder="X-Store-Token（本地留空）"> <button class="gray" onclick="saveTok()">存</button></div>
 <div id="apps">加载中…</div>
+<div id="parambox" style="display:none">
+  <div class="card"><div class="name" style="margin-bottom:10px">安装参数</div>
+  <div id="pform"></div>
+  <button onclick="submitParams()">确定</button><button class="gray" onclick="closeParams()">取消</button></div>
+</div>
 <div id="taskbox">
   <div class="name" id="taskname"></div>
   <pre id="log"></pre>
@@ -41,6 +46,7 @@ async function api(p,opt){opt=opt||{};opt.headers=Object.assign({'X-Store-Token'
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 async function load(){
   const d=await api('/api/apps');
+  appCache={};(d.apps||[]).forEach(a=>appCache[a.id]=a);
   document.getElementById('apps').innerHTML=(d.apps||[]).map(a=>{
     const ps=(a.docker.ports[0]||'').split(':'),port=ps.length>=3?ps[1]:ps[0];
     const chips=[
@@ -54,14 +60,39 @@ async function load(){
        ('<button onclick="act(\'install\',\''+a.id+'\')">安装</button>'))+'</div>';
   }).join('')||'<div class="card">目录是空的</div>';
 }
-async function act(action,id){
-  if(action==='uninstall'&&!confirm('卸载 '+id+'？容器删除，/data/apps/'+id+' 配置保留。'))return;
-  const r=await api('/api/action?id='+id+'&action='+action,{method:'POST'});
+let appCache={};
+function act(action,id){
+  if(action==='uninstall'){
+    if(confirm('卸载 '+id+'？容器删除，/data/apps/'+id+' 配置保留。'))send(action,id,{});
+    return;
+  }
+  const a=appCache[id]||{};const ps=a.params||[];
+  if(!ps.length)return send(action,id,{});
+  pending={action,id};
+  document.getElementById('pform').innerHTML=ps.map(p=>
+    '<div style="margin-bottom:8px"><label style="font-size:12px;color:#aab2c5">'+esc(p.label)+(p.required?' *':'')+'</label><br>'+
+    '<input data-pname="'+p.name+'" data-preq="'+(p.required?1:0)+'" type="'+(p.type==='password'?'password':'text')+'" value="'+esc(p.default||'')+'" style="width:260px"></div>').join('');
+  document.getElementById('parambox').style.display='block';
+}
+async function send(action,id,params){
+  const r=await api('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action,params})});
   if(r.error)return alert(r.error);
   curTask=r.taskId;document.getElementById('taskbox').style.display='block';
   document.getElementById('taskname').textContent=action+' '+id+' …';
   clearInterval(poll);poll=setInterval(pollTask,1500);pollTask();
 }
+let pending=null;
+function submitParams(){
+  const p={};let ok=true;
+  document.querySelectorAll('#pform input').forEach(i=>{
+    if(i.dataset.preq==='1'&&!i.value.trim())ok=false;
+    p[i.dataset.pname]=i.value;
+  });
+  if(!ok)return alert('必填项不能为空');
+  document.getElementById('parambox').style.display='none';
+  send(pending.action,pending.id,p);pending=null;
+}
+function closeParams(){document.getElementById('parambox').style.display='none';pending=null}
 async function pollTask(){
   if(!curTask)return;
   const t=await api('/api/task?id='+curTask);
