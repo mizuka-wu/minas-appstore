@@ -455,11 +455,16 @@ func buildEntry(m *Manifest, v int) map[string]any {
 		"tags": []string{"tool"}, "timestamp": time.Now().Unix(), "desc": m.Desc,
 		"developer": "mizuka", "publisher": "private-store", "changelog": "",
 		"system": false, "size": 10000, "port": port, "type": "standard",
-		"forceupgrade": false, "ext": map[string]any{},
+		"forceupgrade": false, "ext": map[string]any{"admin": true},
+	}
+	sortid := 0
+	if n, err := strconv.Atoi(fmt.Sprint(info["id"])); err == nil {
+		sortid = n
 	}
 	return map[string]any{
 		"status": "running", "install": true, "upgrade": false, "enable": true,
 		"online": true, "autograde": false, // 应用中心出卡片的门槛字段，缺了整卡不显示
+		"timestamp":  time.Now().Unix(),
 		"changetime": time.Now().Unix(),
 		"icon":       fmt.Sprintf("/icon/%s.icon?v=%d", m.ID, v),
 		"progress":   "100",
@@ -470,7 +475,7 @@ func buildEntry(m *Manifest, v int) map[string]any {
 			"icon": fmt.Sprintf("/%s.icon?v=%d", m.ID, v),
 			"type": "url", "dev_type": []int{1, 2, 3, 4},
 			"permission": []string{"admin"}, "widget": []any{},
-			"url": "/", "sortid": "",
+			"url": "/", "sortid": sortid,
 		},
 	}
 }
