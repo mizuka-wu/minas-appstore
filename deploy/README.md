@@ -31,8 +31,8 @@ systemctl start docker-nat && iptables -t nat -S POSTROUTING | grep MASQUERADE
 （若本机已按 skill §14 A 方案实装过 docker-nat，跳过。）
 
 ```bash
-cp deploy/minas-store.service /etc/systemd/system/   # 先替换 UID/IP/TOKEN 占位符
-systemctl daemon-reload && systemctl enable --now minas-store
+cp deploy/thirddockerappstore.service /etc/systemd/system/   # 先替换 UID/IP/TOKEN 占位符
+systemctl daemon-reload && systemctl enable --now thirddockerappstore
 curl -s http://127.0.0.1:8400/api/apps | head -c 400
 ```
 
@@ -51,4 +51,4 @@ anirss/qbittorrent 已在跑的容器会被状态检测直接识别为“运行�
 无需重装；对已存在容器点“安装”会被显式拒绝（防误删）。
 
 ## 换 catalog 后
-`systemctl restart minas-store`（v0 不热加载）。
+`systemctl restart thirddockerappstore`（v0 不热加载）。

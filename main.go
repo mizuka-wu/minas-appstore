@@ -1,4 +1,4 @@
-// minas-store: 小米 NAS(MINAS) 私有应用商店
+// thirddockerappstore: 小米 NAS(MINAS) 私有应用商店
 // 单二进制跑在 NAS 上：本地 catalog + docker 安装引擎 + 应用中心直连注册 + 任务队列。
 // 设计参考 nijez/xiaomi-nas-plugin-market 的流程（暂存→健康检查→写注册表→回滚），
 // 但 catalog 本地化、不依赖 SSH、私有店免签名层。详见 README.md。
@@ -915,6 +915,6 @@ func main() {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(webIndex)
 	})
-	log.Printf("minas-store 启动 addr=%s uid=%s nasip=%s dry-run=%v", C.addr, C.uid, C.nasIP, C.dryRun)
+	log.Printf("thirddockerappstore 启动 addr=%s uid=%s nasip=%s dry-run=%v", C.addr, C.uid, C.nasIP, C.dryRun)
 	log.Fatal(http.ListenAndServe(C.addr, mux))
 }
