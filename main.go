@@ -46,6 +46,7 @@ var C cfg
 type DockerSpec struct {
 	Image         string            `json:"image"`
 	ContainerName string            `json:"containerName,omitempty"`
+	Command       []string          `json:"command,omitempty"` // 容器 command/args（每元素过模板）
 	Ports         []string          `json:"ports"`
 	Volumes       []string          `json:"volumes"`
 	Env           map[string]string `json:"env,omitempty"`
@@ -104,8 +105,12 @@ func hostPort(m *Manifest) string {
 	if len(m.Docker.Ports) == 0 {
 		return ""
 	}
-	return strings.SplitN(m.Docker.Ports[0], ":", 2)[0]
+	p := strings.Split(m.Docker.Ports[0], ":") // 支持 [ip:]host:container
+	return p[len(p)-2]
 }
+
+// {{ENV:NAME}} 从 store 进程环境取值（机密如 CF token 只活在 systemd unit，不进仓库）
+var envRe = regexp.MustCompile(`\{\{ENV:([A-Za-z0-9_]+)\}\}`)
 
 func containerName(m *Manifest) string {
 	if m.Docker.ContainerName != "" {
@@ -115,6 +120,9 @@ func containerName(m *Manifest) string {
 }
 
 func expand(s string, m *Manifest) string {
+	s = envRe.ReplaceAllStringFunc(s, func(mt string) string {
+		return os.Getenv(envRe.FindStringSubmatch(mt)[1])
+	})
 	r := strings.NewReplacer(
 		"{{DATA}}", "/data/apps/"+m.ID,
 		"{{POOL}}", "/nas/pool0/u"+C.uid+"/data",
@@ -123,6 +131,29 @@ func expand(s string, m *Manifest) string {
 		"{{HOST_PORT}}", hostPort(m),
 	)
 	return r.Replace(s)
+}
+
+// missingEnvs 安装前预检：manifest 引用的 {{ENV:X}} 缺了就直接失败，别等容器起一半
+func missingEnvs(m *Manifest) []string {
+	texts := append([]string{}, m.Docker.Command...)
+	texts = append(texts, m.Docker.Ports...)
+	texts = append(texts, m.Docker.Volumes...)
+	for _, v := range m.Docker.Env {
+		texts = append(texts, v)
+	}
+	texts = append(texts, m.PostShell, m.Health.URL)
+	seen, out := map[string]bool{}, []string{}
+	for _, t := range texts {
+		for _, g := range envRe.FindAllStringSubmatch(t, -1) {
+			if !seen[g[1]] {
+				seen[g[1]] = true
+				if os.Getenv(g[1]) == "" {
+					out = append(out, g[1])
+				}
+			}
+		}
+	}
+	return out
 }
 
 // ---------------- 任务队列（串行：eMMC 扛不住并发安装） ----------------
@@ -251,6 +282,14 @@ func runArgs(m *Manifest) []string {
 		a = append(a, "-e", k+"="+expand(m.Docker.Env[k], m))
 	}
 	return append(a, m.Docker.Image)
+}
+
+func commandArgs(m *Manifest) []string {
+	out := make([]string, 0, len(m.Docker.Command))
+	for _, c := range m.Docker.Command {
+		out = append(out, expand(c, m))
+	}
+	return out
 }
 
 func healthOK(t *Task, m *Manifest) error {
@@ -485,6 +524,9 @@ func doInstall(t *Task) error {
 	if !keyRe.MatchString(m.ID) {
 		return fmt.Errorf("id %q 不合规（小写字母数字下划线，禁连字符）", m.ID)
 	}
+	if miss := missingEnvs(m); len(miss) > 0 {
+		return fmt.Errorf("缺少环境变量 %v——在 systemd unit 里加 Environment=… 后重启 store", miss)
+	}
 	if st := dockerState()[containerName(m)]; st != "" {
 		return fmt.Errorf("容器 %s 已存在(state=%s)——先卸载或在 catalog 里认领，防止误删别人起的服务", containerName(m), st)
 	}
@@ -503,7 +545,7 @@ func doInstall(t *Task) error {
 		return fmt.Errorf("pull 失败: %w", err)
 	}
 	// 3) 起容器
-	if err := runCmd(t, C.dockerBin, runArgs(m)...); err != nil {
+	if err := runCmd(t, C.dockerBin, append(runArgs(m), commandArgs(m)...)...); err != nil {
 		return fmt.Errorf("run 失败: %w", err)
 	}
 	// 4) 健康检查，失败回滚容器
@@ -575,7 +617,7 @@ func doUpdate(t *Task) error {
 		return fmt.Errorf("pull 失败: %w", err)
 	}
 	runCmd(t, C.dockerBin, "rm", "-f", containerName(m))
-	if err := runCmd(t, C.dockerBin, runArgs(m)...); err != nil {
+	if err := runCmd(t, C.dockerBin, append(runArgs(m), commandArgs(m)...)...); err != nil {
 		return fmt.Errorf("run 失败(旧容器已删!): %w", err)
 	}
 	if err := healthOK(t, m); err != nil {

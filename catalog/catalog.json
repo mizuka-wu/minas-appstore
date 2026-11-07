@@ -36,6 +36,23 @@
       },
       "health": { "url": "http://127.0.0.1:8200/", "timeoutSec": 90 },
       "postShell": "echo '提示: docker logs qbittorrent | grep -i password 取临时密码'"
+    },
+    {
+      "id": "cftunnel",
+      "name": "Cloudflare Tunnel",
+      "desc": "免公网IP免端口映射，把 NAS 服务经 Cloudflare 定点暴露（Zero Trust 远程托管隧道）。token 放 store 的 systemd 环境变量，装前先在 CF 后台建 Tunnel 拿 token",
+      "version": "latest",
+      "registerId": 903,
+      "iconFile": "cftunnel.png",
+      "docker": {
+        "image": "cloudflare/cloudflared:latest",
+        "command": ["tunnel", "--no-autoupdate", "run", "--token", "{{ENV:CF_TUNNEL_TOKEN}}"],
+        "ports": ["127.0.0.1:20240:20000"],
+        "memory": "64m",
+        "cpus": "0.5"
+      },
+      "health": { "url": "http://127.0.0.1:20240/ready", "timeoutSec": 60 },
+      "postShell": "echo '隧道就绪后在 CF Zero Trust 配 Public Hostname 指向 NAS 服务；metrics: http://{{NAS_IP}}:20240'"
     }
   ]
 }

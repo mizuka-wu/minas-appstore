@@ -42,7 +42,7 @@ function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>'
 async function load(){
   const d=await api('/api/apps');
   document.getElementById('apps').innerHTML=(d.apps||[]).map(a=>{
-    const port=(a.docker.ports[0]||'').split(':')[0];
+    const ps=(a.docker.ports[0]||'').split(':'),port=ps.length>=3?ps[1]:ps[0];
     const chips=[
       a.running?'<span class="chip ok">运行中</span>':(a.containerState?'<span class="chip warn">'+esc(a.containerState)+'</span>':'<span class="chip bad">未安装</span>'),
       a.registered?'<span class="chip ok">已入应用中心</span>':'<span class="chip">未注册</span>'
