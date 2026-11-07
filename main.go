@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bytes"
 	_ "embed"
 	"encoding/json"
 	"flag"
@@ -917,6 +918,51 @@ func main() {
 	mux.HandleFunc("/api/action", apiAction)
 	mux.HandleFunc("/api/task", apiTask)
 	mux.HandleFunc("/api/nat", apiNat)
+	// —— AniRSS 反代网关：qB 式同源反代 + HTML 注入调试脚本（厂商 nginx 无 sub_filter，注入自己来） ——
+	mux.HandleFunc("/ani/", func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/ani")
+		if path == "" || path == "/" {
+			path = "/"
+		}
+		if path == "/wdbg.js" {
+			w.Header().Set("Content-Type", "application/javascript")
+			w.Header().Set("Cache-Control", "no-store")
+			w.Write([]byte(debugJS))
+			return
+		}
+		up := "http://127.0.0.1:8300" + path
+		if r.URL.RawQuery != "" {
+			up += "?" + r.URL.RawQuery
+		}
+		req, _ := http.NewRequest(r.Method, up, r.Body)
+		req.Header.Set("Accept-Encoding", "identity")
+		if h := r.Header.Get("Cookie"); h != "" {
+			req.Header.Set("Cookie", h)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			http.Error(w, "ani upstream: "+err.Error(), 502)
+			return
+		}
+		defer resp.Body.Close()
+		for _, h := range []string{"Set-Cookie"} {
+			for _, v := range resp.Header.Values(h) {
+				w.Header().Add(h, v)
+			}
+		}
+		ct := resp.Header.Get("Content-Type")
+		w.Header().Set("Content-Type", ct)
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(resp.StatusCode)
+		if strings.Contains(ct, "text/html") {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
+			body = bytes.Replace(body, []byte("</head>"),
+				[]byte("<script src=\"./wdbg.js\"></script></head>"), 1)
+			w.Write(body)
+			return
+		}
+		io.Copy(w, resp.Body)
+	})
 	// —— WebView 调试收集：注入脚本把手机侧 console/错误打回这里 ——
 	mux.HandleFunc("/debug.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/javascript")
