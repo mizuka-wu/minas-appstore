@@ -118,9 +118,49 @@ type catSrc struct {
 	url  string // 直链清单
 }
 
+// ---------------- 运行时货架配置（UI 可改，存 settings.json；env/flag 只作首启兜底） ----------------
+
+type storeSettings struct {
+	Sources string `json:"sources"` // 空=未设置(回落启动参数)；非空=完整列表整体生效
+	Token   string `json:"token"`   // 空=沿用启动参数给的 token；非空覆盖
+}
+
+func settingsPath() string { return filepath.Join(C.assets, "settings.json") }
+
+func loadSettings() storeSettings {
+	var s storeSettings
+	if b, err := os.ReadFile(settingsPath()); err == nil {
+		_ = json.Unmarshal(b, &s)
+	}
+	return s
+}
+
+func effSources() string {
+	if s := loadSettings().Sources; s != "" {
+		return s
+	}
+	return C.catalogSpecs
+}
+
+func effToken() string {
+	if t := loadSettings().Token; t != "" {
+		return t
+	}
+	return C.catalogToken
+}
+
+func saveSettings(s storeSettings) error {
+	b, _ := json.MarshalIndent(s, "", "  ")
+	tmp := settingsPath() + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, settingsPath())
+}
+
 func catalogSources() []catSrc {
 	var out []catSrc
-	for _, raw := range strings.Split(C.catalogSpecs, ",") {
+	for _, raw := range strings.Split(effSources(), ",") {
 		spec := strings.TrimSpace(raw)
 		if spec == "" {
 			continue
@@ -179,8 +219,8 @@ func fetchCatalogFrom(src catSrc) ([]byte, error) {
 	u := fmt.Sprintf("https://api.github.com/repos/%s/contents/catalog.json?ref=%s", src.repo, src.ref)
 	req, _ := http.NewRequest("GET", u, nil)
 	req.Header.Set("User-Agent", "minas-appstore")
-	if C.catalogToken != "" {
-		req.Header.Set("Authorization", "Bearer "+C.catalogToken)
+	if tk := effToken(); tk != "" {
+		req.Header.Set("Authorization", "Bearer "+tk)
 	}
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
@@ -206,8 +246,8 @@ func ghRepoGet(src catSrc, path string) ([]byte, error) {
 	u := fmt.Sprintf("https://api.github.com/repos/%s/contents/%s?ref=%s", src.repo, path, src.ref)
 	req, _ := http.NewRequest("GET", u, nil)
 	req.Header.Set("User-Agent", "minas-appstore")
-	if C.catalogToken != "" {
-		req.Header.Set("Authorization", "Bearer "+C.catalogToken)
+	if tk := effToken(); tk != "" {
+		req.Header.Set("Authorization", "Bearer "+tk)
 	}
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
@@ -1089,6 +1129,68 @@ func envOr(k, def string) string {
 	return def
 }
 
+// apiSettings GET 读货架配置 / POST 保存并立即拉新。token 只进不出(回 hasToken 布尔)。
+func apiSettings(w http.ResponseWriter, r *http.Request) {
+	if !authOK(r) {
+		jsonOut(w, 401, map[string]string{"error": "bad token"})
+		return
+	}
+	if r.Method == http.MethodGet {
+		s := loadSettings()
+		srcs := []string{}
+		for _, sc := range catalogSources() {
+			srcs = append(srcs, sc.String())
+		}
+		jsonOut(w, 200, map[string]any{"sources": s.Sources, "effective": srcs, "hasToken": effToken() != ""})
+		return
+	}
+	if r.Method != http.MethodPost {
+		jsonOut(w, 405, map[string]string{"error": "method"})
+		return
+	}
+	var in struct {
+		Sources *string `json:"sources"`
+		Token   *string `json:"token"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 65536)).Decode(&in); err != nil {
+		jsonOut(w, 400, map[string]string{"error": "坏 JSON"})
+		return
+	}
+	s := loadSettings()
+	if in.Sources != nil {
+		s.Sources = strings.TrimSpace(*in.Sources)
+	}
+	if in.Token != nil {
+		s.Token = strings.TrimSpace(*in.Token)
+	}
+	if s.Sources != "" { // 存前验证语法，烂 spec 不进文件
+		for _, sc := range catalogSources() {
+			_ = sc
+		}
+		for _, raw := range strings.Split(s.Sources, ",") {
+			spec := strings.TrimSpace(raw)
+			if spec == "" {
+				continue
+			}
+			if !strings.HasPrefix(spec, "github:") && !strings.HasPrefix(spec, "http://") && !strings.HasPrefix(spec, "https://") {
+				jsonOut(w, 400, map[string]string{"error": fmt.Sprintf("货架源格式不认识: %q(支持 github:owner/repo[@ref] 或 https 直链)", spec)})
+				return
+			}
+		}
+	}
+	if err := saveSettings(s); err != nil {
+		jsonOut(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	msg := "已保存"
+	if _, err := pullCatalog(); err != nil {
+		msg += "，但拉新失败: " + err.Error()
+	} else {
+		msg += "并拉新成功"
+	}
+	jsonOut(w, 200, map[string]string{"ok": msg})
+}
+
 // apiCatalog GET 货架状态 / POST 从远程货架刷新清单
 func apiCatalog(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
@@ -1253,7 +1355,8 @@ func main() {
 	mux.HandleFunc("/api/task", apiTask)
 	mux.HandleFunc("/api/nat", apiNat)
 	mux.HandleFunc("/api/catalog", apiCatalog)
-	if C.catalogSpecs != "" {
+	mux.HandleFunc("/api/settings", apiSettings)
+	if effSources() != "" {
 		go func() { // 开机自拉一次：失败只用本地版，不打扰服务
 			time.Sleep(8 * time.Second)
 			if msg, err := pullCatalog(); err != nil {

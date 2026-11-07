@@ -71,9 +71,15 @@ input:focus{outline:none;border-color:var(--acc2)}
 <div id="catinfo" style="font-size:12px;color:var(--sub);padding:2px 4px 8px"></div>
 <div id="tokcfg"><div class="cfg">X-Store-Token（本地访问留空）</div>
   <input id="tok" placeholder="粘贴令牌"> 
-  <button style="margin-top:8px" onclick="saveTok()">保存</button></div>
+  <button style="margin-top:8px" onclick="saveTok()">保存</button>
+<div class="cfg" style="margin-top:14px">货架源列表（逗号分隔，有序；同名商品后面的源覆盖前面的。支持 <code>github:owner/repo[@分支]</code> 与 https 清单直链；留空=用服务启动参数）</div>
+  <textarea id="catsrc" placeholder="github:xxx/catalog@main,https://example.com/catalog.json" style="width:100%;height:64px;margin-top:6px;font-size:12px;box-sizing:border-box"></textarea>
+<div class="cfg" style="margin-top:10px">货架 Token（仅私有 GitHub 仓需要，fine-grained PAT 只读 Contents；留空=不修改）</div>
+  <input id="cattoken" placeholder="留空不修改">
+  <button style="margin-top:8px" onclick="saveCfg()">保存货架配置并拉新</button></div>
 <div id="nat"><span class="nname">容器出网</span><span class="nchips" id="natchips"></span><span id="natbtn"></span></div>
 <div class="grid" id="apps">加载中…</div>
+<div id="arch"></div>
 
 <div class="sheet" id="parambox"><div class="sheetIn">
   <h3>⚙️ 安装参数 <span id="pname" style="color:var(--sub);font-weight:400"></span></h3>
@@ -89,9 +95,11 @@ input:focus{outline:none;border-color:var(--acc2)}
 <script>
 (function(){const h=decodeURIComponent(location.hash.replace(/^#/,''));try{if(h&&!localStorage.getItem('storeToken'))localStorage.setItem('storeToken',h.startsWith('tok-')?h.slice(4):h)}catch(e){}})();
 const tok=()=>localStorage.getItem('storeToken')||'';
-function tgTok(){const e=document.getElementById('tokcfg');e.style.display=e.style.display==='block'?'none':'block'}
+function tgTok(){const e=document.getElementById('tokcfg');e.style.display=e.style.display==='block'?'none':'block';if(e.style.display==='block')loadCfg()}
 function saveTok(){localStorage.setItem('storeToken',document.getElementById('tok').value.trim());tgTok();load()}
 let curTask=null,poll=null;
+async function loadCfg(){try{const s=await api('api/settings');document.getElementById('catsrc').value=s.sources||'';document.getElementById('cattoken').placeholder=s.hasToken?'已设置（留空不改）':'私有仓才需要，留空即可';}catch(e){}}
+async function saveCfg(){const b={sources:document.getElementById('catsrc').value};const t=document.getElementById('cattoken').value.trim();if(t)b.token=t;try{const d=await api('api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});alert(d.ok||('失败: '+(d.error||'?')));loadCat();load();}catch(e){alert('保存失败 '+e)}}
 function base(){const p=location.pathname;return p.endsWith('/')?p:p.replace(/\/[^\/]*$/,'/')}
 async function api(p,opt){opt=opt||{};opt.headers=Object.assign({'X-Store-Token':tok()},opt.headers||{});return (await fetch(base()+p,opt)).json()}
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
@@ -102,7 +110,8 @@ async function load(){
   const d=await api('api/apps');
   if(d.error){throw new Error(d.error)}
   appCache={};(d.apps||[]).forEach(a=>appCache[a.id]=a);
-  document.getElementById('apps').innerHTML=(d.apps||[]).map(a=>{
+  const nasIP=d.nasIP||'';
+  const card=a=>{
     const ps=(a.docker.ports[0]||'').split(':'),port=ps.length>=3?ps[1]:ps[0];
     const ctr=ps.length>=3?ps[2]:(ps.length===2?ps[1]:ps[0]);
     const dot=a.running?'<span class="dot run"></span>':(a.containerState?'<span class="dot warn"></span>':'<span class="dot"></span>');
@@ -114,15 +123,25 @@ async function load(){
       a.running?'<span class="chip ok">运行中</span>':(a.containerState?'<span class="chip warn">'+esc(a.containerState)+'</span>':'<span class="chip n">未安装</span>'),
       a.registered?'<span class="chip ok">应用中心 ✓</span>':(a.vendorUninstalled?'<span class="chip warn">入口已被米家卸载 · 按卸载可清容器</span>':'')
     ].join('');
-  document.getElementById('apps').insertAdjacentHTML('beforeend','<div style="grid-column:1/-1;font-size:12px;opacity:.65;line-height:1.6;padding:2px 4px">※ 安装/更新/卸载请以本商店为准。在米家 App 插件中心里卸载只会摘走入口卡片，容器和数据依然在本机运行——回到此处按「卸载」才会彻底清理。</div>');
-    const open=a.running&&port?'<a class="open" href="http://'+d.nasIP+':'+port+'/" target="_blank">打开 ↗</a>':'';
+    const open=a.running&&port?'<a class="open" href="http://'+nasIP+':'+port+'/" target="_blank">打开 ↗</a>':'';
     const acts=a.containerState?(open+(a.running&&!a.archived?'<button class="gray" onclick="act(\'update\',\''+a.id+'\')">更新</button>':'')+'<button class="red" onclick="act(\'uninstall\',\''+a.id+'\')">卸载</button>'):(a.archived?'<span style="font-size:12px;opacity:.55">已下架 · 不再提供安装</span>':
       ('<button onclick="act(\'install\',\''+a.id+'\')">安装</button>'))
     return '<div class="card"><div class="row1">'+dot+'<span class="name">'+esc(a.name)+'</span><span class="ver">v'+esc(a.version)+'</span>'+(a.beta?'<span class="beta">β</span>':'')+'</div>'+
       '<div class="desc">'+esc(a.desc)+'</div><div class="chips">'+chips+'</div><div class="acts">'+acts+'</div></div>';
-  }).join('')||'<div class="empty">目录是空的</div>';
+  };
+  const list=d.apps||[];
+  const show=list.filter(a=>!(a.archived&&!a.containerState));
+  const gone=list.filter(a=>a.archived&&!a.containerState);
+  document.getElementById('apps').innerHTML=show.map(card).join('')||'<div class="empty">目录是空的</div>';
+  document.getElementById('apps').insertAdjacentHTML('beforeend','<div style="grid-column:1/-1;font-size:12px;opacity:.65;line-height:1.6;padding:2px 4px">※ 安装/更新/卸载请以本商店为准。在米家 App 插件中心里卸载只会摘走入口卡片，容器和数据依然在本机运行——回到此处按「卸载」才会彻底清理。</div>');
+  const el=document.getElementById('arch');
+  if(gone.length){
+    const on=localStorage.getItem('showArch')==='1';
+    el.innerHTML='<div style="font-size:12px;color:var(--sub);padding:12px 4px 6px">🗄 已下架 · 未安装（'+gone.length+'） <button class="gray" style="margin-left:8px" onclick="tgArch()">'+(on?'隐藏':'显示')+'</button></div>'+(on?'<div class="grid">'+gone.map(card).join('')+'</div>':'');
+  }else{el.innerHTML=''}
   }catch(e){document.getElementById('apps').innerHTML='<div class="empty">加载失败: '+esc(String(e))+'<br>令牌没配对? <button onclick="tgTok()">设置令牌</button> · <button onclick="load()">重试</button></div>'}
 }
+function tgArch(){localStorage.setItem('showArch',localStorage.getItem('showArch')==='1'?'0':'1');load()}
 let appCache={};
 function act(action,id){
   if(action==='uninstall'){
