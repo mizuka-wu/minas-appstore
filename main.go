@@ -1026,6 +1026,9 @@ func main() {
 					return err
 				}
 				body = bytes.Replace(body, []byte(`<base href="/"`), []byte(`<base href="`+prefix+`"`), 1)
+				// v5 老插件 UI 的 helper 绝对路径：/assets/plugin-ui-utils/ui.js 要平移进前缀，
+				// 否则 window.homebridge API 缺失，老 UI 秒死(host 等不到 loaded 即 revoke)
+				body = bytes.Replace(body, []byte(`src="/assets/plugin-ui-utils/`), []byte(`src="`+prefix+`assets/plugin-ui-utils/`), 1)
 				resp.Body = io.NopCloser(bytes.NewReader(body))
 				resp.ContentLength = int64(len(body))
 				resp.Header.Set("Content-Length", fmt.Sprint(len(body)))
