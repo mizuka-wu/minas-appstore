@@ -119,7 +119,7 @@
       "registerId": 904,
       "iconFile": "homebridge.png",
       "docker": {
-        "image": "homebridge/homebridge:latest",
+        "image": "homebridge/homebridge:legacy",
         "network": "host",
         "ports": [
           "8581"

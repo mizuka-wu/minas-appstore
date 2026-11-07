@@ -1010,6 +1010,13 @@ func main() {
 				pr.SetXForwarded()
 			},
 			ModifyResponse: func(resp *http.Response) error {
+				// cookie 的 native Path(如 /api/...)要平移进子路径前缀，否则浏览器资源请求不带 cookie → 401
+				if sc := resp.Header["Set-Cookie"]; len(sc) > 0 {
+					for i, c := range sc {
+						sc[i] = strings.Replace(c, "Path=/", "Path="+prefix, 1)
+					}
+					resp.Header["Set-Cookie"] = sc
+				}
 				if !strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
 					return nil
 				}
