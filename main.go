@@ -573,29 +573,91 @@ func deregister(t *Task, id string) error {
 	return writeList(list, "uninstall")
 }
 
+// ---------------- 容器出网 NAT（dockerd iptables:false 机的自愈与手动管理） ----------------
+
+const natSubnet = "172.16.0.0/12"
+
+func natRulePresent() bool {
+	out, _ := exec.Command("sh", "-c", "iptables -t nat -S POSTROUTING 2>/dev/null").Output()
+	return strings.Contains(string(out), "MASQUERADE")
+}
+
+func natUnitPresent() bool {
+	_, err := os.Stat("/etc/systemd/system/docker-nat.service")
+	return err == nil
+}
+
+// natInject 直接挂 MASQUERADE（网卡取默认路由出口），幂等
+func natInject() (string, error) {
+	script := `IF=$(ip route | awk '/default/{print $5; exit}'); [ -n "$IF" ] || { echo "找不到默认路由网卡"; exit 1; }; ` +
+		`sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1; ` +
+		`iptables -t nat -C POSTROUTING -s ` + natSubnet + ` -o "$IF" -j MASQUERADE 2>/dev/null || ` +
+		`iptables -t nat -A POSTROUTING -s ` + natSubnet + ` -o "$IF" -j MASQUERADE && echo "MASQUERADE on $IF"`
+	out, err := exec.Command("sh", "-c", script).CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
+// natRemove 撤下所有 MASQUERADE 规则（先停 unit 防它再挂回来）
+func natRemove() (string, error) {
+	script := `systemctl stop docker-nat >/dev/null 2>&1; ` +
+		`iptables -t nat -S POSTROUTING 2>/dev/null | grep MASQUERADE | sed 's/^-A/-D/' | while read -r r; do iptables -t nat $r; done; echo done`
+	out, err := exec.Command("sh", "-c", script).CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
+func apiNat(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		if !authOK(r) {
+			jsonOut(w, 401, map[string]string{"error": "bad token"})
+			return
+		}
+		var out string
+		var err error
+		switch r.URL.Query().Get("action") {
+		case "inject":
+			out, err = natInject()
+		case "remove":
+			out, err = natRemove()
+		default:
+			jsonOut(w, 400, map[string]string{"error": "action=inject|remove"})
+			return
+		}
+		if err != nil {
+			jsonOut(w, 500, map[string]any{"error": err.Error(), "out": out})
+			return
+		}
+		jsonOut(w, 200, map[string]any{"ok": true, "out": out, "rule": natRulePresent()})
+		return
+	}
+	jsonOut(w, 200, map[string]any{"rule": natRulePresent(), "unit": natUnitPresent()})
+}
+
 // ensureEgress 出网预检：MINAS 的 dockerd 是 iptables:false（skill §14），bridge 容器出网全靠
-// 手工 MASQUERADE；vendor 同步可能洗掉规则/单元。装一个先天断网的容器比装失败更坏，先修再装。
+// 手工 MASQUERADE；vendor 同步可能洗掉规则/单元。缺失时商店自行注入，注入不了才拒绝安装。
 func ensureEgress(t *Task, m *Manifest) error {
 	// 只有 bridge(默认)网络才依赖 MASQUERADE 出网；host 网络容器进程直接用宿主协议栈、
 	// 包天然宿主源址，不需要 NAT。是否发布端口与出网无关，bridge 一律查。
 	if C.dryRun || m.Docker.Network == "host" {
 		return nil
 	}
-	has := func() bool {
-		out, _ := exec.Command("sh", "-c", "iptables -t nat -S POSTROUTING 2>/dev/null").Output()
-		return strings.Contains(string(out), "MASQUERADE")
-	}
-	if has() {
+	if natRulePresent() {
 		t.logf("出网预检: NAT MASQUERADE 在位")
 		return nil
 	}
-	t.logf("出网预检: 缺 MASQUERADE（dockerd iptables:false 机），尝试拉起 docker-nat.service…")
-	_ = exec.Command("systemctl", "start", "docker-nat").Run()
-	if has() {
+	t.logf("出网预检: 缺 MASQUERADE（dockerd iptables:false 机），先试 docker-nat.service…")
+	if natUnitPresent() {
+		_ = exec.Command("systemctl", "start", "docker-nat").Run()
+	}
+	if natRulePresent() {
 		t.logf("docker-nat 已补挂规则，继续安装")
 		return nil
 	}
-	return fmt.Errorf("容器出网不可用：POSTROUTING 无 MASQUERADE 且 docker-nat.service 拉起失败——先按 deploy/docker-nat.service + skill §14 修好再装（否则应用装完也抓不了数据）")
+	out, err := natInject()
+	if err == nil && natRulePresent() {
+		t.logf("商店已直接注入 MASQUERADE（%s）——重启会丢，建议放 docker-nat unit 持久化", out)
+		return nil
+	}
+	return fmt.Errorf("容器出网不可用：MASQUERADE 注入失败(%s)——按 skill §14 手工修好再装", out)
 }
 
 // ---------------- 安装 / 卸载 / 更新 ----------------
@@ -844,6 +906,7 @@ func main() {
 	mux.HandleFunc("/api/apps", apiApps)
 	mux.HandleFunc("/api/action", apiAction)
 	mux.HandleFunc("/api/task", apiTask)
+	mux.HandleFunc("/api/nat", apiNat)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)

@@ -27,6 +27,7 @@ input{background:#0d0f12;border:1px solid #333a48;color:#e8eaf0;border-radius:6p
 <body>
 <h1>🛒 MINAS 私有应用商店</h1>
 <div class="cfg">令牌 <input id="tok" placeholder="X-Store-Token（本地留空）"> <button class="gray" onclick="saveTok()">存</button></div>
+<div id="natcard" class="card" style="display:none"></div>
 <div id="apps">加载中…</div>
 <div id="parambox" style="display:none">
   <div class="card"><div class="name" style="margin-bottom:10px">安装参数</div>
@@ -103,7 +104,22 @@ async function pollTask(){
   if(t.done){clearInterval(poll);document.getElementById('taskname').textContent=t.kind+' '+t.appId+' → '+(t.state==='ok'?'✔ 完成':'✘ '+t.error);load()}
 }
 function closeTask(){curTask=null;clearInterval(poll);document.getElementById('taskbox').style.display='none'}
-document.getElementById('tok').value=tok();load();setInterval(()=>{if(!curTask)load()},10000);
+document.getElementById('tok').value=tok();load();loadNat();setInterval(()=>{if(!curTask){load();loadNat()}},10000);
+async function loadNat(){
+  try{
+    const n=await api('/api/nat');const el=document.getElementById('natcard');el.style.display='block';
+    const chips=[n.rule?'<span class="chip ok">出网规则在位</span>':'<span class="chip bad">出网规则缺失</span>',
+      n.unit?'<span class="chip ok">boot unit 已装</span>':'<span class="chip">无 boot unit（重启后需再注入）</span>'].join('');
+    el.innerHTML='<span class="name">容器出网 NAT</span><div class="chips">'+chips+'</div>'+
+      (n.rule?'<button class="red" onclick="natAct(\'remove\')">卸载规则</button>':'<button onclick="natAct(\'inject\')">注入规则</button>');
+  }catch(e){}
+}
+async function natAct(a){
+  if(a==='remove'&&!confirm('卸载 MASQUERADE 规则？所有 bridge 容器（qb/anirss…）会立刻断网。'))return;
+  const r=await api('/api/nat?action='+a,{method:'POST'});
+  if(r.error)return alert(r.error);
+  loadNat();
+}
 </script>
 </body>
 </html>
