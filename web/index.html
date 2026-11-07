@@ -40,6 +40,7 @@ input{background:#0d0f12;border:1px solid #333a48;color:#e8eaf0;border-radius:6p
   <button class="gray" onclick="closeTask()">关闭</button>
 </div>
 <script>
+(function(){const h=decodeURIComponent(location.hash.replace(/^#/,''));try{if(h&&!localStorage.getItem('storeToken'))localStorage.setItem('storeToken',h.startsWith('tok-')?h.slice(4):h)}catch(e){}})();
 const tok=()=>localStorage.getItem('storeToken')||'';
 function saveTok(){localStorage.setItem('storeToken',document.getElementById('tok').value.trim());load()}
 let curTask=null,poll=null;
