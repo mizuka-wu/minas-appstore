@@ -461,23 +461,31 @@ func buildEntry(m *Manifest, v int) map[string]any {
 	if n, err := strconv.Atoi(fmt.Sprint(info["id"])); err == nil {
 		sortid = n
 	}
-	return map[string]any{
-		"status": "running", "install": true, "upgrade": false, "enable": true,
-		"online": true, "autograde": false, // 应用中心出卡片的门槛字段，缺了整卡不显示
-		"timestamp":  time.Now().Unix(),
-		"changetime": time.Now().Unix(),
-		"icon":       fmt.Sprintf("/icon/%s.icon?v=%d", m.ID, v),
-		"progress":   "100",
-		"resource":   map[string]any{"mpk": filepath.Join(srcBase(m.ID), "INFO")},
-		"info":       info,
-		"frontend": map[string]any{
-			"title": m.Name, "desc": m.Desc,
-			"icon": fmt.Sprintf("/%s.icon?v=%d", m.ID, v),
-			"type": "url", "dev_type": []int{1, 2, 3, 4},
-			"permission": []string{"admin"}, "widget": []any{},
-			"url": "/", "sortid": sortid,
-		},
-	}
+	return func() map[string]any {
+		entry := map[string]any{
+			"status": "running", "install": true, "upgrade": false, "enable": true,
+			"online": true, "autograde": false, // 应用中心出卡片的门槛字段，缺了整卡不显示
+			"timestamp":  time.Now().Unix(),
+			"changetime": time.Now().Unix(),
+			"icon":       fmt.Sprintf("/icon/%s.icon?v=%d", m.ID, v),
+			"progress":   "100",
+			"info":       info,
+			"frontend": map[string]any{
+				"title": m.Name, "desc": m.Desc,
+				"icon": fmt.Sprintf("/%s.icon?v=%d", m.ID, v),
+				"type": "url", "dev_type": []int{1, 2, 3, 4},
+				"permission": []string{"admin"}, "widget": []any{},
+				// url 必须数组形——裸字符串会被客户端静默丢整卡(homebridge 首发中招)
+				"url":    []any{map[string]any{"dev_type": []int{1, 2, 3, 4}, "url": "/"}},
+				"sortid": sortid,
+			},
+		}
+		// mpk 用 URL 形(qb 实证)——指本地 INFO 路径会触发厂商签名包校验被判装失败；社区商店则整键删
+		if port != "" {
+			entry["resource"] = map[string]any{"mpk": fmt.Sprintf("http://%s:%s/", C.nasIP, port)}
+		}
+		return entry
+	}()
 }
 
 // 同源反代：厂商 WebView 同源路径 /plugin/<uid>/<id>/ → 127.0.0.1:<hostPort>。
