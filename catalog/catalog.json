@@ -175,9 +175,8 @@
     {
       "id": "emby",
       "name": "Emby",
-      "desc": "β 未在 MINAS 实测。影音库服务器，媒体走用户库树 /media(影音库同源可见)，网页端 :8600",
+      "desc": "影音库服务器，媒体走用户库树 /media(影音库同源可见)，网页端 :8600",
       "version": "latest",
-      "beta": true,
       "registerId": 905,
       "iconFile": "emby.png",
       "docker": {
