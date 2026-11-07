@@ -573,6 +573,31 @@ func deregister(t *Task, id string) error {
 	return writeList(list, "uninstall")
 }
 
+// ensureEgress 出网预检：MINAS 的 dockerd 是 iptables:false（skill §14），bridge 容器出网全靠
+// 手工 MASQUERADE；vendor 同步可能洗掉规则/单元。装一个先天断网的容器比装失败更坏，先修再装。
+func ensureEgress(t *Task, m *Manifest) error {
+	// 只有 bridge(默认)网络才依赖 MASQUERADE 出网；host 网络容器进程直接用宿主协议栈、
+	// 包天然宿主源址，不需要 NAT。是否发布端口与出网无关，bridge 一律查。
+	if C.dryRun || m.Docker.Network == "host" {
+		return nil
+	}
+	has := func() bool {
+		out, _ := exec.Command("sh", "-c", "iptables -t nat -S POSTROUTING 2>/dev/null").Output()
+		return strings.Contains(string(out), "MASQUERADE")
+	}
+	if has() {
+		t.logf("出网预检: NAT MASQUERADE 在位")
+		return nil
+	}
+	t.logf("出网预检: 缺 MASQUERADE（dockerd iptables:false 机），尝试拉起 docker-nat.service…")
+	_ = exec.Command("systemctl", "start", "docker-nat").Run()
+	if has() {
+		t.logf("docker-nat 已补挂规则，继续安装")
+		return nil
+	}
+	return fmt.Errorf("容器出网不可用：POSTROUTING 无 MASQUERADE 且 docker-nat.service 拉起失败——先按 deploy/docker-nat.service + skill §14 修好再装（否则应用装完也抓不了数据）")
+}
+
 // ---------------- 安装 / 卸载 / 更新 ----------------
 
 func doInstall(t *Task) error {
@@ -600,6 +625,10 @@ func doInstall(t *Task) error {
 	}
 	if _, err := os.Stat(listPath()); err != nil && !C.dryRun {
 		return fmt.Errorf("注册表 %s 不存在，中止（防损坏）", listPath())
+	}
+	// 0) 出网预检（bridge+映射端口才需要；host 网络自动跳过）
+	if err := ensureEgress(t, m); err != nil {
+		return err
 	}
 	// 1) 预建数据目录
 	if !C.dryRun {
@@ -685,6 +714,9 @@ func doUpdate(t *Task) error {
 		return fmt.Errorf("缺少必填参数: %v", missP)
 	}
 	activeParams = params
+	if err := ensureEgress(t, m); err != nil {
+		return err
+	}
 	t.logf("更新: 拉新镜像并重建容器（注册表/配置不动）")
 	if err := runCmd(t, C.dockerBin, "pull", m.Docker.Image); err != nil {
 		return fmt.Errorf("pull 失败: %w", err)

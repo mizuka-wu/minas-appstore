@@ -16,6 +16,20 @@ make build        # dist/store = linux/arm64 静态二进制
 ```
 
 ## 3. systemd
+
+**先起 NAT（不做这步，商店装的 bridge 容器全部断网）**：MINAS 的 dockerd 是
+`"iptables": false`，出方向没人挂 MASQUERADE（skill §14）。商店安装引擎已内置出网预检
+（缺规则自动 `systemctl start docker-nat`，修不好就拒绝安装），但 unit 得先落好：
+```bash
+# 母本放 /data（vendor 会回收 /etc 异物，skill 规矩）
+mkdir -p /data/nat-persistence
+cp deploy/docker-nat.service /data/nat-persistence/
+cp /data/nat-persistence/docker-nat.service /etc/systemd/system/
+ln -sfn /data/nat-persistence/docker-nat.service /etc/systemd/system/multi-user.target.wants/docker-nat.service  # 或 cp 后 enable
+systemctl start docker-nat && iptables -t nat -S POSTROUTING | grep MASQUERADE
+```
+（若本机已按 skill §14 A 方案实装过 docker-nat，跳过。）
+
 ```bash
 cp deploy/minas-store.service /etc/systemd/system/   # 先替换 UID/IP/TOKEN 占位符
 systemctl daemon-reload && systemctl enable --now minas-store
