@@ -1062,6 +1062,16 @@ func doUpdate(t *Task) error {
 	if err := healthOK(t, m); err != nil {
 		return err
 	}
+	// 自愈：历史安装中断可能留下半成品(缺注册表/UI/反代 conf)，update 顺手幂等补齐
+	if err := writePluginUI(t, m); err != nil {
+		t.logf("自愈 UI 警告(不影响更新): %v", err)
+	}
+	if err := writePluginNginx(t, m); err != nil {
+		t.logf("自愈反代警告(不影响更新): %v", err)
+	}
+	if err := register(t, m); err != nil {
+		t.logf("自愈注册警告(不影响更新): %v", err)
+	}
 	t.logf("更新完成 ✔")
 	return nil
 }
