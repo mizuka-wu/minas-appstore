@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MINAS 应用商店</title>
+<style>
+:root{color-scheme:dark}
+body{font-family:-apple-system,"PingFang SC",sans-serif;background:#14161a;color:#e8eaf0;margin:0;padding:16px}
+h1{font-size:18px;margin:4px 0 14px}
+.card{background:#1e222a;border-radius:12px;padding:14px;margin-bottom:12px}
+.name{font-weight:600;font-size:15px}
+.ver{color:#8b93a7;font-size:12px;margin-left:6px}
+.desc{color:#aab2c5;font-size:13px;margin:6px 0}
+.chips{margin:6px 0}
+.chip{display:inline-block;font-size:11px;padding:2px 8px;border-radius:99px;margin-right:6px}
+.ok{background:#173524;color:#5bd97b}.warn{background:#3a2f16;color:#e6c35c}.bad{background:#3a1c1c;color:#f07a7a}
+button{border:0;border-radius:8px;padding:8px 14px;margin-right:8px;font-size:13px;cursor:pointer;background:#2e6cff;color:#fff}
+button.gray{background:#333a48}button.red{background:#7a2e2e}
+a{color:#6ea0ff}
+#taskbox{display:none}
+#log{background:#0d0f12;border-radius:8px;padding:10px;font:11px/1.5 ui-monospace,monospace;white-space:pre-wrap;max-height:320px;overflow:auto;color:#9fb3c8}
+.cfg{font-size:12px;color:#8b93a7;margin-bottom:12px}
+input{background:#0d0f12;border:1px solid #333a48;color:#e8eaf0;border-radius:6px;padding:6px;width:180px}
+</style>
+</head>
+<body>
+<h1>🛒 MINAS 私有应用商店</h1>
+<div class="cfg">令牌 <input id="tok" placeholder="X-Store-Token（本地留空）"> <button class="gray" onclick="saveTok()">存</button></div>
+<div id="apps">加载中…</div>
+<div id="taskbox">
+  <div class="name" id="taskname"></div>
+  <pre id="log"></pre>
+  <button class="gray" onclick="closeTask()">关闭</button>
+</div>
+<script>
+const tok=()=>localStorage.getItem('storeToken')||'';
+function saveTok(){localStorage.setItem('storeToken',document.getElementById('tok').value.trim());load()}
+let curTask=null,poll=null;
+async function api(p,opt){opt=opt||{};opt.headers=Object.assign({'X-Store-Token':tok()},opt.headers||{});return (await fetch(p,opt)).json()}
+function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+async function load(){
+  const d=await api('/api/apps');
+  document.getElementById('apps').innerHTML=(d.apps||[]).map(a=>{
+    const port=(a.docker.ports[0]||'').split(':')[0];
+    const chips=[
+      a.running?'<span class="chip ok">运行中</span>':(a.containerState?'<span class="chip warn">'+esc(a.containerState)+'</span>':'<span class="chip bad">未安装</span>'),
+      a.registered?'<span class="chip ok">已入应用中心</span>':'<span class="chip">未注册</span>'
+    ].join('');
+    const open=a.running&&port?'<a href="http://'+d.nasIP+':'+port+'/" target="_blank">打开 ↗</a>':'';
+    return '<div class="card"><span class="name">'+esc(a.name)+'</span><span class="ver">'+esc(a.version)+'</span>'+
+      '<div class="chips">'+chips+'</div><div class="desc">'+esc(a.desc)+'</div>'+
+      (a.running?('<button class="gray" onclick="act(\'update\',\''+a.id+'\')">更新</button><button class="red" onclick="act(\'uninstall\',\''+a.id+'\')">卸载</button>'+open):
+       ('<button onclick="act(\'install\',\''+a.id+'\')">安装</button>'))+'</div>';
+  }).join('')||'<div class="card">目录是空的</div>';
+}
+async function act(action,id){
+  if(action==='uninstall'&&!confirm('卸载 '+id+'？容器删除，/data/apps/'+id+' 配置保留。'))return;
+  const r=await api('/api/action?id='+id+'&action='+action,{method:'POST'});
+  if(r.error)return alert(r.error);
+  curTask=r.taskId;document.getElementById('taskbox').style.display='block';
+  document.getElementById('taskname').textContent=action+' '+id+' …';
+  clearInterval(poll);poll=setInterval(pollTask,1500);pollTask();
+}
+async function pollTask(){
+  if(!curTask)return;
+  const t=await api('/api/task?id='+curTask);
+  if(t.error)return;
+  const el=document.getElementById('log');
+  el.textContent=(t.log||[]).join('\n');el.scrollTop=el.scrollHeight;
+  if(t.done){clearInterval(poll);document.getElementById('taskname').textContent=t.kind+' '+t.appId+' → '+(t.state==='ok'?'✔ 完成':'✘ '+t.error);load()}
+}
+function closeTask(){curTask=null;clearInterval(poll);document.getElementById('taskbox').style.display='none'}
+document.getElementById('tok').value=tok();load();setInterval(()=>{if(!curTask)load()},10000);
+</script>
+</body>
+</html>

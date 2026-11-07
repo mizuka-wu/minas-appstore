@@ -1,0 +1,5 @@
+dist/
+dist-assets/
+*.log
+dist-assets*
+/minas-appstore

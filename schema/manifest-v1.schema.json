@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "minas-appstore catalog v1",
+  "type": "object",
+  "required": ["schemaVersion", "apps"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "apps": { "type": "array", "items": { "$ref": "#/$defs/app" } }
+  },
+  "$defs": {
+    "app": {
+      "type": "object",
+      "required": ["id", "name", "version", "registerId", "docker", "health"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$", "description": "应用中心 key：小写字母数字下划线，禁连字符" },
+        "name": { "type": "string" },
+        "desc": { "type": "string" },
+        "version": { "type": "string" },
+        "registerId": { "type": "integer", "minimum": 98, "description": "INFO.id，各商品互不重复" },
+        "iconFile": { "type": "string", "description": "assets/icons/ 下 300x300 PNG" },
+        "docker": {
+          "type": "object",
+          "required": ["image"],
+          "properties": {
+            "image": { "type": "string" },
+            "containerName": { "type": "string" },
+            "ports": { "type": "array", "items": { "type": "string", "pattern": "^[0-9]+:[0-9]+$" }, "description": "绑 LAN（-p host:container），WebView 直连必需" },
+            "volumes": { "type": "array", "items": { "type": "string" } },
+            "env": { "type": "object", "additionalProperties": { "type": "string" } },
+            "memory": { "type": "string", "description": "无 swap 机器必给，保险丝" },
+            "cpus": { "type": "string" }
+          }
+        },
+        "health": {
+          "type": "object",
+          "required": ["url"],
+          "properties": {
+            "url": { "type": "string", "description": "健康检查 URL（Java 应用冷启动 30-60s，timeoutSec 给足）" },
+            "timeoutSec": { "type": "integer", "default": 90 }
+          }
+        },
+        "postShell": { "type": "string", "description": "可选后置钩子；模板变量 {{DATA}} {{POOL}} {{NAS_IP}} {{UID}} {{HOST_PORT}}；env 附 NAS_IP/NAS_UID/HOST_PORT" }
+      }
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "apps": [
+    {
+      "id": "anirss",
+      "name": "AniRSS",
+      "desc": "番剧 RSS 订阅+自动追更+资源搬移（真实监听 7789，EXPOSE 8300 是障眼）",
+      "version": "latest",
+      "registerId": 901,
+      "iconFile": "anirss.png",
+      "docker": {
+        "image": "wushuo894/ani-rss:latest",
+        "ports": ["8300:7789"],
+        "volumes": ["{{DATA}}/config:/app/config", "{{POOL}}:/media"],
+        "env": { "TZ": "Asia/Shanghai" },
+        "memory": "512m",
+        "cpus": "1.5"
+      },
+      "health": { "url": "http://127.0.0.1:8300/", "timeoutSec": 120 },
+      "postShell": ""
+    },
+    {
+      "id": "qbittorrent",
+      "name": "qBittorrent",
+      "desc": "BT/磁力下载。首启临时 WebUI 密码在容器日志（docker logs qbittorrent），每次重启会变，登录后立刻改固定密码；默认保存路径 /media/番剧",
+      "version": "latest",
+      "registerId": 902,
+      "iconFile": "qbittorrent.png",
+      "docker": {
+        "image": "lscr.io/linuxserver/qbittorrent:latest",
+        "ports": ["8200:8200"],
+        "volumes": ["{{DATA}}/config:/config", "{{POOL}}:/media"],
+        "env": { "PUID": "0", "PGID": "0", "TZ": "Asia/Shanghai", "WEBUI_PORT": "8200" },
+        "memory": "512m",
+        "cpus": "1.5"
+      },
+      "health": { "url": "http://127.0.0.1:8200/", "timeoutSec": 90 },
+      "postShell": "echo '提示: docker logs qbittorrent | grep -i password 取临时密码'"
+    }
+  ]
+}
