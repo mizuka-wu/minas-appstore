@@ -2,47 +2,93 @@
 <html lang="zh">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MINAS 应用商店</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>私有商店</title>
 <style>
-:root{color-scheme:dark}
-body{font-family:-apple-system,"PingFang SC",sans-serif;background:#14161a;color:#e8eaf0;margin:0;padding:16px}
-h1{font-size:18px;margin:4px 0 14px}
-.card{background:#1e222a;border-radius:12px;padding:14px;margin-bottom:12px}
-.name{font-weight:600;font-size:15px}
-.ver{color:#8b93a7;font-size:12px;margin-left:6px}
-.desc{color:#aab2c5;font-size:13px;margin:6px 0}
-.chips{margin:6px 0}
-.chip{display:inline-block;font-size:11px;padding:2px 8px;border-radius:99px;margin-right:6px}
-.ok{background:#173524;color:#5bd97b}.warn{background:#3a2f16;color:#e6c35c}.bad{background:#3a1c1c;color:#f07a7a}
-button{border:0;border-radius:8px;padding:8px 14px;margin-right:8px;font-size:13px;cursor:pointer;background:#2e6cff;color:#fff}
-button.gray{background:#333a48}button.red{background:#7a2e2e}
-a{color:#6ea0ff}
-#taskbox{display:none}
-#log{background:#0d0f12;border-radius:8px;padding:10px;font:11px/1.5 ui-monospace,monospace;white-space:pre-wrap;max-height:320px;overflow:auto;color:#9fb3c8}
-.cfg{font-size:12px;color:#8b93a7;margin-bottom:12px}
-input{background:#0d0f12;border:1px solid #333a48;color:#e8eaf0;border-radius:6px;padding:6px;width:180px}
+:root{color-scheme:dark;--bg:#0d1017;--panel:#161b26;--panel2:#1c2230;--line:#242c3d;--txt:#e9edf5;--sub:#93a0b8;
+--acc:#37c8e8;--acc2:#2e6cff;--ok:#43d17c;--warn:#e6c35c;--bad:#f0707a}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,"PingFang SC",sans-serif;background:
+radial-gradient(1200px 500px at 50% -150px,#16283a 0%,var(--bg) 70%);color:var(--txt);margin:0;
+padding:0 16px calc(24px + env(safe-area-inset-bottom))}
+header{padding:22px 2px 6px;display:flex;align-items:center;gap:12px}
+.logo{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#0f3d4d,#177e96 60%,#2bd4ee);
+display:flex;align-items:center;justify-content:center;font-size:22px;box-shadow:0 4px 18px #0ee0ff2b}
+h1{font-size:19px;margin:0;letter-spacing:.5px}
+.sub{color:var(--sub);font-size:12px;margin-top:2px}
+.gear{margin-left:auto;border:1px solid var(--line);background:var(--panel);color:var(--sub);border-radius:10px;
+padding:8px 12px;font-size:13px}
+#tokcfg{display:none;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;margin:10px 0;font-size:13px}
+#nat{display:none;margin:12px 0;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:12px 14px;
+display:none;align-items:center;gap:10px}
+#nat .nname{font-size:13px;font-weight:600}
+#nat .nchips{flex:1;font-size:11px;color:var(--sub);line-height:1.7}
+.chip{display:inline-block;font-size:11px;padding:2px 9px;border-radius:99px;margin:2px 4px 2px 0;border:1px solid transparent}
+.ok{background:#12331f55;color:var(--ok);border-color:#2a7f4a55}.warn{background:#3a2f1655;color:var(--warn);border-color:#7a651f55}
+.bad{background:#3a1c1c55;color:var(--bad);border-color:#7a323255}.n{background:#20293a;color:var(--sub);border-color:var(--line)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-top:14px}
+.card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:18px;
+padding:16px;display:flex;flex-direction:column;gap:8px;transition:border-color .2s}
+.card:hover{border-color:#2f3c55}
+.row1{display:flex;align-items:center;gap:10px}
+.dot{width:9px;height:9px;border-radius:50%;background:#555;flex:none}
+.dot.run{background:var(--ok);box-shadow:0 0 8px var(--ok)}.dot.warn{background:var(--warn)}
+.name{font-weight:650;font-size:16px}
+.ver{color:var(--sub);font-size:11px;background:#20293a;padding:2px 8px;border-radius:99px}
+.beta{color:var(--warn);font-size:11px;border:1px solid #7a651f88;padding:1px 7px;border-radius:99px}
+.desc{color:var(--sub);font-size:13px;line-height:1.55;flex:1}
+.chips{display:flex;flex-wrap:wrap}
+.acts{display:flex;gap:8px;margin-top:4px;flex-wrap:wrap}
+button{border:0;border-radius:11px;padding:10px 16px;font-size:13px;font-weight:600;cursor:pointer;
+min-height:40px;background:linear-gradient(135deg,#2e9bff,#2e6cff);color:#fff}
+button.gray{background:#242c3d;color:#c7d0e2}
+button.red{background:transparent;color:var(--bad);border:1px solid #7a323288}
+button.ghost{background:transparent;color:var(--acc);border:1px solid #1c6a7e}
+a.open{color:var(--acc);text-decoration:none;font-size:13px;font-weight:600;padding:10px 8px}
+.empty{grid-column:1/-1;text-align:center;color:var(--sub);padding:60px 0}
+.sheet{position:fixed;inset:0;background:#000a;display:none;align-items:flex-end;justify-content:center;z-index:9}
+.sheet.on{display:flex}
+.sheetIn{background:#141a26;border:1px solid var(--line);border-radius:22px 22px 0 0;width:100%;max-width:560px;
+max-height:80vh;overflow:auto;padding:18px 18px calc(18px + env(safe-area-inset-bottom));animation:up .25s}
+@keyframes up{from{transform:translateY(40px);opacity:.4}}
+.sheetIn h3{margin:0 0 12px;font-size:16px}
+#log{background:#0a0d13;border:1px solid var(--line);border-radius:12px;padding:12px;
+font:11px/1.6 ui-monospace,monospace;white-space:pre-wrap;max-height:44vh;overflow:auto;color:#9fb3c8}
+label{font-size:12px;color:var(--sub)}
+input{background:#0b0f17;border:1px solid #2b3548;color:var(--txt);border-radius:10px;padding:11px;width:100%;font-size:14px}
+input:focus{outline:none;border-color:var(--acc2)}
+.pf{margin-bottom:12px}
+.cfg{font-size:12px;color:var(--sub);margin-bottom:8px}
 </style>
 </head>
 <body>
-<h1>🛒 MINAS 私有应用商店</h1>
-<div class="cfg">令牌 <input id="tok" placeholder="X-Store-Token（本地留空）"> <button class="gray" onclick="saveTok()">存</button></div>
-<div id="natcard" class="card" style="display:none"></div>
-<div id="apps">加载中…</div>
-<div id="parambox" style="display:none">
-  <div class="card"><div class="name" style="margin-bottom:10px">安装参数</div>
+<header>
+  <div class="logo">🛍️</div>
+  <div><h1>私有商店</h1><div class="sub">MINAS · 第三方 Docker 应用</div></div>
+  <button class="gear" onclick="tgTok()">⚙️</button>
+</header>
+<div id="tokcfg"><div class="cfg">X-Store-Token（本地访问留空）</div>
+  <input id="tok" placeholder="粘贴令牌"> 
+  <button style="margin-top:8px" onclick="saveTok()">保存</button></div>
+<div id="nat"><span class="nname">容器出网</span><span class="nchips" id="natchips"></span><span id="natbtn"></span></div>
+<div class="grid" id="apps">加载中…</div>
+
+<div class="sheet" id="parambox"><div class="sheetIn">
+  <h3>⚙️ 安装参数 <span id="pname" style="color:var(--sub);font-weight:400"></span></h3>
   <div id="pform"></div>
-  <button onclick="submitParams()">确定</button><button class="gray" onclick="closeParams()">取消</button></div>
-</div>
-<div id="taskbox">
-  <div class="name" id="taskname"></div>
+  <button onclick="submitParams()">确定</button>
+  <button class="gray" onclick="closeParams()">取消</button></div></div>
+
+<div class="sheet" id="taskbox"><div class="sheetIn">
+  <h3 id="taskname">任务</h3>
   <pre id="log"></pre>
-  <button class="gray" onclick="closeTask()">关闭</button>
-</div>
+  <button class="gray" onclick="closeTask()">关闭</button></div></div>
+
 <script>
 (function(){const h=decodeURIComponent(location.hash.replace(/^#/,''));try{if(h&&!localStorage.getItem('storeToken'))localStorage.setItem('storeToken',h.startsWith('tok-')?h.slice(4):h)}catch(e){}})();
 const tok=()=>localStorage.getItem('storeToken')||'';
-function saveTok(){localStorage.setItem('storeToken',document.getElementById('tok').value.trim());load()}
+function tgTok(){const e=document.getElementById('tokcfg');e.style.display=e.style.display==='block'?'none':'block'}
+function saveTok(){localStorage.setItem('storeToken',document.getElementById('tok').value.trim());tgTok();load()}
 let curTask=null,poll=null;
 async function api(p,opt){opt=opt||{};opt.headers=Object.assign({'X-Store-Token':tok()},opt.headers||{});return (await fetch(p,opt)).json()}
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
@@ -51,17 +97,18 @@ async function load(){
   appCache={};(d.apps||[]).forEach(a=>appCache[a.id]=a);
   document.getElementById('apps').innerHTML=(d.apps||[]).map(a=>{
     const ps=(a.docker.ports[0]||'').split(':'),port=ps.length>=3?ps[1]:ps[0];
+    const dot=a.running?'<span class="dot run"></span>':(a.containerState?'<span class="dot warn"></span>':'<span class="dot"></span>');
     const chips=[
       a.beta?'<span class="chip warn">β 未实测</span>':'',
-      a.running?'<span class="chip ok">运行中</span>':(a.containerState?'<span class="chip warn">'+esc(a.containerState)+'</span>':'<span class="chip bad">未安装</span>'),
-      a.registered?'<span class="chip ok">已入应用中心</span>':'<span class="chip">未注册</span>'
+      a.running?'<span class="chip ok">运行中</span>':(a.containerState?'<span class="chip warn">'+esc(a.containerState)+'</span>':'<span class="chip n">未安装</span>'),
+      a.registered?'<span class="chip ok">应用中心 ✓</span>':''
     ].join('');
-    const open=a.running&&port?'<a href="http://'+d.nasIP+':'+port+'/" target="_blank">打开 ↗</a>':'';
-    return '<div class="card"><span class="name">'+esc(a.name)+'</span><span class="ver">'+esc(a.version)+'</span>'+
-      '<div class="chips">'+chips+'</div><div class="desc">'+esc(a.desc)+'</div>'+
-      (a.running?('<button class="gray" onclick="act(\'update\',\''+a.id+'\')">更新</button><button class="red" onclick="act(\'uninstall\',\''+a.id+'\')">卸载</button>'+open):
-       ('<button onclick="act(\'install\',\''+a.id+'\')">安装</button>'))+'</div>';
-  }).join('')||'<div class="card">目录是空的</div>';
+    const open=a.running&&port?'<a class="open" href="http://'+d.nasIP+':'+port+'/" target="_blank">打开 ↗</a>':'';
+    const acts=a.running?('<button class="gray" onclick="act(\'update\',\''+a.id+'\')">更新</button><button class="red" onclick="act(\'uninstall\',\''+a.id+'\')">卸载</button>'+open):
+      ('<button onclick="act(\'install\',\''+a.id+'\')">安装</button>');
+    return '<div class="card"><div class="row1">'+dot+'<span class="name">'+esc(a.name)+'</span><span class="ver">v'+esc(a.version)+'</span>'+(a.beta?'<span class="beta">β</span>':'')+'</div>'+
+      '<div class="desc">'+esc(a.desc)+'</div><div class="chips">'+chips+'</div><div class="acts">'+acts+'</div></div>';
+  }).join('')||'<div class="empty">目录是空的</div>';
 }
 let appCache={};
 function act(action,id){
@@ -72,15 +119,16 @@ function act(action,id){
   const a=appCache[id]||{};const ps=a.params||[];
   if(!ps.length)return send(action,id,{});
   pending={action,id};
+  document.getElementById('pname').textContent=a.name||id;
   document.getElementById('pform').innerHTML=ps.map(p=>
-    '<div style="margin-bottom:8px"><label style="font-size:12px;color:#aab2c5">'+esc(p.label)+(p.required?' *':'')+'</label><br>'+
-    '<input data-pname="'+p.name+'" data-preq="'+(p.required?1:0)+'" type="'+(p.type==='password'?'password':'text')+'" value="'+esc(p.default||'')+'" style="width:260px"></div>').join('');
-  document.getElementById('parambox').style.display='block';
+    '<div class="pf"><label>'+esc(p.label)+(p.required?' *':'')+'</label><br style="content:none">'+
+    '<input data-pname="'+p.name+'" data-preq="'+(p.required?1:0)+'" type="'+(p.type==='password'?'password':'text')+'" value="'+esc(p.default||'')+'"></div>').join('');
+  document.getElementById('parambox').classList.add('on');
 }
 async function send(action,id,params){
   const r=await api('api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action,params})});
   if(r.error)return alert(r.error);
-  curTask=r.taskId;document.getElementById('taskbox').style.display='block';
+  curTask=r.taskId;document.getElementById('taskbox').classList.add('on');
   document.getElementById('taskname').textContent=action+' '+id+' …';
   clearInterval(poll);poll=setInterval(pollTask,1500);pollTask();
 }
@@ -92,10 +140,10 @@ function submitParams(){
     p[i.dataset.pname]=i.value;
   });
   if(!ok)return alert('必填项不能为空');
-  document.getElementById('parambox').style.display='none';
+  closeParams();
   send(pending.action,pending.id,p);pending=null;
 }
-function closeParams(){document.getElementById('parambox').style.display='none';pending=null}
+function closeParams(){document.getElementById('parambox').classList.remove('on');pending=null}
 async function pollTask(){
   if(!curTask)return;
   const t=await api('api/task?id='+curTask);
@@ -104,15 +152,14 @@ async function pollTask(){
   el.textContent=(t.log||[]).join('\n');el.scrollTop=el.scrollHeight;
   if(t.done){clearInterval(poll);document.getElementById('taskname').textContent=t.kind+' '+t.appId+' → '+(t.state==='ok'?'✔ 完成':'✘ '+t.error);load()}
 }
-function closeTask(){curTask=null;clearInterval(poll);document.getElementById('taskbox').style.display='none'}
+function closeTask(){curTask=null;clearInterval(poll);document.getElementById('taskbox').classList.remove('on')}
 document.getElementById('tok').value=tok();load();loadNat();setInterval(()=>{if(!curTask){load();loadNat()}},10000);
 async function loadNat(){
   try{
-    const n=await api('api/nat');const el=document.getElementById('natcard');el.style.display='block';
-    const chips=[n.rule?'<span class="chip ok">出网规则在位</span>':'<span class="chip bad">出网规则缺失</span>',
-      n.unit?'<span class="chip ok">boot unit 已装</span>':'<span class="chip">无 boot unit（重启后需再注入）</span>'].join('');
-    el.innerHTML='<span class="name">容器出网 NAT</span><div class="chips">'+chips+'</div>'+
-      (n.rule?'<button class="red" onclick="natAct(\'remove\')">卸载规则</button>':'<button onclick="natAct(\'inject\')">注入规则</button>');
+    const n=await api('api/nat');const el=document.getElementById('nat');el.style.display='flex';
+    document.getElementById('natchips').innerHTML=n.rule?'<span class="chip ok">出网规则在位</span>':'<span class="chip bad">出网规则缺失</span>'+
+      (n.unit?'<span class="chip ok">boot unit ✓</span>':'<span class="chip n">重启后需再注入</span>');
+    document.getElementById('natbtn').innerHTML=n.rule?'<button class="red" onclick="natAct(\'remove\')">卸载</button>':'<button onclick="natAct(\'inject\')">注入规则</button>';
   }catch(e){}
 }
 async function natAct(a){
