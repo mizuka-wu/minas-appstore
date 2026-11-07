@@ -50,6 +50,7 @@ async function load(){
   document.getElementById('apps').innerHTML=(d.apps||[]).map(a=>{
     const ps=(a.docker.ports[0]||'').split(':'),port=ps.length>=3?ps[1]:ps[0];
     const chips=[
+      a.beta?'<span class="chip warn">β 未实测</span>':'',
       a.running?'<span class="chip ok">运行中</span>':(a.containerState?'<span class="chip warn">'+esc(a.containerState)+'</span>':'<span class="chip bad">未安装</span>'),
       a.registered?'<span class="chip ok">已入应用中心</span>':'<span class="chip">未注册</span>'
     ].join('');

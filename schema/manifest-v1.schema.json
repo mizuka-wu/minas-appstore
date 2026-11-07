@@ -26,7 +26,8 @@
             "image": { "type": "string" },
             "containerName": { "type": "string" },
             "command": { "type": "array", "items": { "type": "string" }, "description": "容器 command/args；token 类机密用 {{ENV:NAME}} 从 store 进程环境注入" },
-            "ports": { "type": "array", "items": { "type": "string", "pattern": "^(([0-9]{1,3}\\.){3}[0-9]{1,3}:)?[0-9]+:[0-9]+$" }, "description": "绑 LAN（-p host:container），WebView 直连必需；辅助端口可绑 127.0.0.1:hp:cp" },
+            "ports": { "type": "array", "items": { "type": "string", "pattern": "^(([0-9]{1,3}\\.){3}[0-9]{1,3}:)?[0-9]+(:[0-9]+)?$" }, "description": "绑 LAN（-p host:container），WebView 直连必需；辅助端口可绑 127.0.0.1:hp:cp；network=host 时裸端口仅作展示元数据" },
+            "network": { "type": "string", "enum": ["host", "bridge", ""], "description": "host 供 HomeKit/mDNS 类应用；此时不发布端口" },
             "volumes": { "type": "array", "items": { "type": "string" } },
             "env": { "type": "object", "additionalProperties": { "type": "string" } },
             "memory": { "type": "string", "description": "无 swap 机器必给，保险丝" },
@@ -56,6 +57,7 @@
           },
           "description": "安装表单；值经 {{ENV:NAME}} 引用，日志自动打码，API 永不回显。解析顺序：表单 > 进程环境 > default"
         },
+        "beta": { "type": "boolean", "default": false, "description": "配方未在 MINAS 真机验证，商店 UI 挂 β 牌" },
         "postShell": { "type": "string", "description": "可选后置钩子；模板变量 {{DATA}} {{POOL}} {{NAS_IP}} {{UID}} {{DOCKER}} {{HOST_PORT}}；env 附 NAS_IP/NAS_UID/HOST_PORT" }
       }
     }

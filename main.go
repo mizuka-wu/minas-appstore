@@ -47,6 +47,7 @@ type DockerSpec struct {
 	Image         string            `json:"image"`
 	ContainerName string            `json:"containerName,omitempty"`
 	Command       []string          `json:"command,omitempty"` // 容器 command/args（每元素过模板）
+	Network       string            `json:"network,omitempty"` // host（HomeKit/mDNS 类必需；host 模式下不发布端口）
 	Ports         []string          `json:"ports"`
 	Volumes       []string          `json:"volumes"`
 	Env           map[string]string `json:"env,omitempty"`
@@ -75,6 +76,7 @@ type Manifest struct {
 	RegisterID int        `json:"registerId"` // INFO.id，自研建议 >=98 且互不重复
 	IconFile   string     `json:"iconFile,omitempty"`
 	Params     []Param    `json:"params,omitempty"` // 安装时表单（值可在模板里用 {{ENV:NAME}} 引用）
+	Beta       bool       `json:"beta,omitempty"`   // 配方未经真机验证，UI 挂 β 牌
 	Docker     DockerSpec `json:"docker"`
 	Health     HealthSpec `json:"health"`
 	PostShell  string     `json:"postShell,omitempty"` // 可选后置钩子（自家店允许 shell）
@@ -114,7 +116,10 @@ func hostPort(m *Manifest) string {
 	if len(m.Docker.Ports) == 0 {
 		return ""
 	}
-	p := strings.Split(m.Docker.Ports[0], ":") // 支持 [ip:]host:container
+	p := strings.Split(m.Docker.Ports[0], ":") // [ip:]host:container；host 网络下允许裸端口(仅做展示元数据)
+	if len(p) == 1 {
+		return p[0]
+	}
 	return p[len(p)-2]
 }
 
@@ -321,8 +326,12 @@ func runArgs(m *Manifest) []string {
 	if m.Docker.CPUs != "" {
 		a = append(a, "--cpus", m.Docker.CPUs)
 	}
-	for _, p := range m.Docker.Ports {
-		a = append(a, "-p", expand(p, m))
+	if m.Docker.Network != "" {
+		a = append(a, "--network", m.Docker.Network) // host 网络禁发布端口，ports 仅作展示/注册元数据
+	} else {
+		for _, p := range m.Docker.Ports {
+			a = append(a, "-p", expand(p, m))
+		}
 	}
 	for _, v := range m.Docker.Volumes {
 		a = append(a, "-v", expand(v, m))
