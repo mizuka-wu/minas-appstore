@@ -892,7 +892,7 @@ func apiTask(w http.ResponseWriter, r *http.Request) {
 }
 
 // debugJS：注入到被代理页面的错误捕手，onerror/rejection/console.error 全部 POST 回 /api/log
-const debugJS = `(function(){function send(m){try{var x=new XMLHttpRequest();x.open('POST','http://192.168.3.99:8400/api/log',true);x.setRequestHeader('Content-Type','text/plain');x.send(new Date().toISOString()+' '+m);}catch(e){}}
+const debugJS = `(function(){function ep(){return location.pathname.replace(/[^/]*$/,'log')}function send(m){try{var x=new XMLHttpRequest();x.open('POST',ep(),true);x.setRequestHeader('Content-Type','text/plain');x.send(new Date().toISOString()+' '+m);}catch(e){}}
 window.onerror=function(m,s,l,c,e){send('ERR '+m+' @'+s+':'+l+':'+c+(e&&e.stack?' '+String(e.stack).slice(0,500):''));};
 window.addEventListener('unhandledrejection',function(p){var r=p.reason;send('REJ '+String(r&&(r.stack||r.message||r)).slice(0,600));});
 var ce=console.error;console.error=function(){send('CON '+Array.prototype.map.call(arguments,String).join(' ').slice(0,600));ce.apply(console,arguments);};
@@ -928,6 +928,18 @@ func main() {
 			w.Header().Set("Content-Type", "application/javascript")
 			w.Header().Set("Cache-Control", "no-store")
 			w.Write([]byte(debugJS))
+			return
+		}
+		if strings.HasSuffix(path, "/log") && r.Method == http.MethodPost {
+			body, _ := io.ReadAll(io.LimitReader(r.Body, 8192))
+			if !C.dryRun && len(body) > 0 {
+				if f, err := os.OpenFile("/data/apps/store/webdebug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+					f.Write(body)
+					f.Write([]byte("\n"))
+					f.Close()
+				}
+			}
+			w.Write([]byte("ok"))
 			return
 		}
 		up := "http://127.0.0.1:8300" + path
