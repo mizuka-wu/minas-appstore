@@ -965,6 +965,24 @@ func ensureEgress(t *Task, m *Manifest) error {
 
 // ---------------- 安装 / 卸载 / 更新 ----------------
 
+// ensureImage 拉镜像；失败但本地已有同名 tag 则放行(警告)——
+// vendor 的 docker 20.10 不支持 zstd 层(HA 2026.3+ 等 zstd 镜像必报 invalid tar header)，
+// 离线 docker load 灌入的镜像照常可装。两处(install/update)共用。
+func ensureImage(t *Task, img string) error {
+	if err := runCmd(t, C.dockerBin, "pull", img); err != nil {
+		if rerr := runCmd(t, C.dockerBin, "image", "inspect", img); rerr == nil {
+			t.logf("警告: 拉取失败(%v)，改用本地已有镜像 %s(如为 zstd 镜像需离线 docker load 更新)", err, img)
+			return nil
+		}
+		msg := err.Error()
+		if strings.Contains(msg, "invalid tar header") {
+			msg += " —— 多为镜像用了 zstd 压缩而本机 docker(20.10) 不支持；请用新版 docker 机器 docker save 后在 NAS docker load，再重试"
+		}
+		return fmt.Errorf("pull 失败: %s", msg)
+	}
+	return nil
+}
+
 func doInstall(t *Task) error {
 	cat, err := loadCatalog()
 	if err != nil {
@@ -1006,8 +1024,8 @@ func doInstall(t *Task) error {
 	}
 	// 2) 拉镜像
 	t.logf("拉取镜像 %s", m.Docker.Image)
-	if err := runCmd(t, C.dockerBin, "pull", m.Docker.Image); err != nil {
-		return fmt.Errorf("pull 失败: %w", err)
+	if err := ensureImage(t, m.Docker.Image); err != nil {
+		return err
 	}
 	// 3) 起容器
 	if err := runCmd(t, C.dockerBin, append(runArgs(m), commandArgs(m)...)...); err != nil {
@@ -1092,8 +1110,8 @@ func doUpdate(t *Task) error {
 		return err
 	}
 	t.logf("更新: 拉新镜像并重建容器（注册表/配置不动）")
-	if err := runCmd(t, C.dockerBin, "pull", m.Docker.Image); err != nil {
-		return fmt.Errorf("pull 失败: %w", err)
+	if err := ensureImage(t, m.Docker.Image); err != nil {
+		return err
 	}
 	runCmd(t, C.dockerBin, "rm", "-f", containerName(m))
 	if err := runCmd(t, C.dockerBin, append(runArgs(m), commandArgs(m)...)...); err != nil {

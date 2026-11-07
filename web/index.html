@@ -72,8 +72,9 @@ input:focus{outline:none;border-color:var(--acc2)}
 <div id="tokcfg"><div class="cfg">X-Store-Token（本地访问留空）</div>
   <input id="tok" placeholder="粘贴令牌"> 
   <button style="margin-top:8px" onclick="saveTok()">保存</button>
-<div class="cfg" style="margin-top:14px">货架源列表（逗号分隔，有序；同名商品后面的源覆盖前面的。支持 <code>github:owner/repo[@分支]</code> 与 https 清单直链；留空=用服务启动参数）</div>
-  <textarea id="catsrc" placeholder="github:xxx/catalog@main,https://example.com/catalog.json" style="width:100%;height:64px;margin-top:6px;font-size:12px;box-sizing:border-box"></textarea>
+<div class="cfg" style="margin-top:14px">货架源（有序，排后面的同名覆盖前面；支持 <code>github:owner/repo[@分支]</code> 与 https 清单直链；全空=用服务启动参数）</div>
+  <div id="srclist" style="margin-top:6px"></div>
+  <button class="gray" style="margin-top:6px" onclick="addSrc()">＋ 添加货架源</button>
 <div class="cfg" style="margin-top:10px">货架 Token（仅私有 GitHub 仓需要，fine-grained PAT 只读 Contents；留空=不修改）</div>
   <input id="cattoken" placeholder="留空不修改">
   <button style="margin-top:8px" onclick="saveCfg()">保存货架配置并拉新</button></div>
@@ -98,8 +99,12 @@ const tok=()=>localStorage.getItem('storeToken')||'';
 function tgTok(){const e=document.getElementById('tokcfg');e.style.display=e.style.display==='block'?'none':'block';if(e.style.display==='block')loadCfg()}
 function saveTok(){localStorage.setItem('storeToken',document.getElementById('tok').value.trim());tgTok();load()}
 let curTask=null,poll=null;
-async function loadCfg(){try{const s=await api('api/settings');document.getElementById('catsrc').value=s.sources||'';document.getElementById('cattoken').placeholder=s.hasToken?'已设置（留空不改）':'私有仓才需要，留空即可';}catch(e){}}
-async function saveCfg(){const b={sources:document.getElementById('catsrc').value};const t=document.getElementById('cattoken').value.trim();if(t)b.token=t;try{const d=await api('api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});alert(d.ok||('失败: '+(d.error||'?')));loadCat();load();}catch(e){alert('保存失败 '+e)}}
+function srcRow(v){const d=document.createElement('div');d.style.cssText='display:flex;gap:6px;margin-bottom:6px;align-items:center';
+ d.innerHTML='<input style="flex:1;font-size:12px" placeholder=\"github:owner/repo[@分支] 或 https://…/catalog.json\" value=\"'+esc(v)+'\"><button class=\"red\" style=\"padding:6px 10px\" onclick=\"this.parentNode.remove()\">✕</button>';
+ document.getElementById('srclist').appendChild(d)}
+function addSrc(){srcRow('')}
+async function loadCfg(){try{const s=await api('api/settings');const box=document.getElementById('srclist');box.innerHTML='';(s.sources?s.sources.split(','):[]).forEach(v=>srcRow(v.trim()));if(!box.children.length)srcRow('');document.getElementById('cattoken').placeholder=s.hasToken?'已设置（留空不改）':'私有仓才需要，留空即可';}catch(e){}}
+async function saveCfg(){const srcs=[...document.querySelectorAll('#srclist input')].map(i=>i.value.trim()).filter(Boolean).join(',');const b={sources:srcs};const t=document.getElementById('cattoken').value.trim();if(t)b.token=t;try{const d=await api('api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});alert(d.ok||('失败: '+(d.error||'?')));loadCat();load();}catch(e){alert('保存失败 '+e)}}
 function base(){const p=location.pathname;return p.endsWith('/')?p:p.replace(/\/[^\/]*$/,'/')}
 async function api(p,opt){opt=opt||{};opt.headers=Object.assign({'X-Store-Token':tok()},opt.headers||{});return (await fetch(base()+p,opt)).json()}
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
