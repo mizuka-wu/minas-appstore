@@ -470,9 +470,34 @@ func buildEntry(m *Manifest, v int) map[string]any {
 			"icon": fmt.Sprintf("/%s.icon?v=%d", m.ID, v),
 			"type": "url", "dev_type": []int{1, 2, 3, 4},
 			"permission": []string{"admin"}, "widget": []any{},
-			"url": "/index.html", "sortid": "",
+			"url": "/", "sortid": "",
 		},
 	}
+}
+
+// 同源反代：厂商 WebView 同源路径 /plugin/<uid>/<id>/ → 127.0.0.1:<hostPort>。
+// = 精确 location 把无尾斜杠 301 到有斜杠(否则 SPA 相对路径基准歪 + 落 vendor fcgi)；
+// ^~ 前缀压制厂商 regex；no-store 防 WebView 缓存旧壳。语法自检失败自动摘除。
+func writePluginNginx(t *Task, m *Manifest) error {
+	hp := hostPort(m)
+	if hp == "" {
+		t.logf("无发布端口，跳过反代(应用中心入口走 cgi 重定向)")
+		return nil
+	}
+	conf := fmt.Sprintf(
+		"location = /plugin/%s/%s {\n    return 301 /plugin/%s/%s/;\n}\n"+
+			"location ^~ /plugin/%s/%s/ {\n    add_header Cache-Control \"no-store\";\n    proxy_pass http://127.0.0.1:%s/;\n"+
+			"    proxy_http_version 1.1;\n    proxy_set_header Host $host;\n    proxy_set_header X-Real-IP $remote_addr;\n"+
+			"    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n    proxy_set_header X-Forwarded-Proto $scheme;\n    proxy_read_timeout 300s;\n}\n",
+		C.uid, m.ID, C.uid, m.ID, C.uid, m.ID, hp)
+	path := "/etc/nginx/conf.d/luci/" + m.ID + "-uc.conf"
+	if err := writeFile(t, path, conf, false); err != nil {
+		return err
+	}
+	if err := runCmd(t, "sh", "-c", "nginx -t 2>&1 || { rm -f "+path+"; echo '反代 conf 语法未过，已回退删除'; exit 1; }"); err != nil {
+		return err
+	}
+	return runCmd(t, "sh", "-c", "nginx -s reload")
 }
 
 func writeFile(t *Task, path, content string, exec bool) error {
@@ -721,6 +746,10 @@ func doInstall(t *Task) error {
 	if err := writePluginUI(t, m); err != nil {
 		return err
 	}
+	// 5.5) 同源反代 conf(qB 式，双端实证)：应用中心 WebView 走同源路径进应用
+	if err := writePluginNginx(t, m); err != nil {
+		return err
+	}
 	// 6) 最后一步才写注册表（它的失败面最小）
 	if err := register(t, m); err != nil {
 		return fmt.Errorf("注册失败(容器已起，UI 已就位): %w", err)
@@ -760,8 +789,10 @@ func doUninstall(t *Task) error {
 		os.RemoveAll("/home/u" + C.uid + "/plugin/" + t.AppID)
 		os.RemoveAll(filepath.Join(C.plugindir, "www", "u"+C.uid, t.AppID))
 		os.Remove(filepath.Join(C.plugindir, "www", "icon", t.AppID+".icon"))
+		os.Remove("/etc/nginx/conf.d/luci/" + t.AppID + "-uc.conf")
 		t.logf("已清理插件文件（/data/apps/%s 配置已保留）", t.AppID)
 	}
+	runCmd(t, "sh", "-c", "nginx -t >/dev/null 2>&1 && nginx -s reload || true")
 	t.logf("卸载完成 ✔")
 	return nil
 }
