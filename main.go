@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -889,6 +890,13 @@ func apiTask(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, 200, t.snapshot())
 }
 
+// debugJS：注入到被代理页面的错误捕手，onerror/rejection/console.error 全部 POST 回 /api/log
+const debugJS = `(function(){function send(m){try{var x=new XMLHttpRequest();x.open('POST','http://192.168.3.99:8400/api/log',true);x.setRequestHeader('Content-Type','text/plain');x.send(new Date().toISOString()+' '+m);}catch(e){}}
+window.onerror=function(m,s,l,c,e){send('ERR '+m+' @'+s+':'+l+':'+c+(e&&e.stack?' '+String(e.stack).slice(0,500):''));};
+window.addEventListener('unhandledrejection',function(p){var r=p.reason;send('REJ '+String(r&&(r.stack||r.message||r)).slice(0,600));});
+var ce=console.error;console.error=function(){send('CON '+Array.prototype.map.call(arguments,String).join(' ').slice(0,600));ce.apply(console,arguments);};
+send('BOOT '+location.href);})();`
+
 func main() {
 	flag.StringVar(&C.addr, "addr", ":8400", "监听地址（绑 LAN，WebView 直连需要）")
 	flag.StringVar(&C.catalog, "catalog", "/data/apps/store/catalog.json", "catalog 路径")
@@ -909,8 +917,26 @@ func main() {
 	mux.HandleFunc("/api/action", apiAction)
 	mux.HandleFunc("/api/task", apiTask)
 	mux.HandleFunc("/api/nat", apiNat)
+	// —— WebView 调试收集：注入脚本把手机侧 console/错误打回这里 ——
+	mux.HandleFunc("/debug.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Write([]byte(debugJS))
+	})
+	mux.HandleFunc("/api/log", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 8192))
+		if !C.dryRun && len(body) > 0 {
+			if f, err := os.OpenFile("/data/apps/store/webdebug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+				f.Write(body)
+				f.Write([]byte("\n"))
+				f.Close()
+			}
+		}
+		w.Write([]byte("ok"))
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
+		// 厂商 WebView 固定请求 /index.html，两个入口都要给页面
+		if r.URL.Path != "/" && r.URL.Path != "/index.html" {
 			http.NotFound(w, r)
 			return
 		}
