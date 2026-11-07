@@ -92,7 +92,8 @@ const tok=()=>localStorage.getItem('storeToken')||'';
 function tgTok(){const e=document.getElementById('tokcfg');e.style.display=e.style.display==='block'?'none':'block'}
 function saveTok(){localStorage.setItem('storeToken',document.getElementById('tok').value.trim());tgTok();load()}
 let curTask=null,poll=null;
-async function api(p,opt){opt=opt||{};opt.headers=Object.assign({'X-Store-Token':tok()},opt.headers||{});return (await fetch(p,opt)).json()}
+function base(){const p=location.pathname;return p.endsWith('/')?p:p.replace(/\/[^\/]*$/,'/')}
+async function api(p,opt){opt=opt||{};opt.headers=Object.assign({'X-Store-Token':tok()},opt.headers||{});return (await fetch(base()+p,opt)).json()}
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 async function pullCat(){try{const d=await api('api/catalog',{method:'POST'});alert(d.ok||('刷新失败: '+(d.error||'?')));loadCat();load();}catch(e){alert('刷新失败 '+e)}}
 async function loadCat(){try{const c=await api('api/catalog');document.getElementById('catinfo').textContent='货架 '+(c.sources||[]).join(' + ')+' · '+c.apps+' 商品 · 更新 '+c.updated;}catch(e){}}
