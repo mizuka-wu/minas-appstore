@@ -138,6 +138,7 @@
         "url": "http://127.0.0.1:8581/",
         "timeoutSec": 600
       },
+      "subPathBase": true,
       "postShell": "{{DOCKER}} exec homebridge npm --prefix /var/lib/homebridge install homebridge-miot && {{DOCKER}} restart homebridge && echo 'homebridge-miot 已装好，去 UI(:8581) 配插件即可'"
     }
   ]

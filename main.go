@@ -13,6 +13,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -71,17 +73,18 @@ type Param struct {
 }
 
 type Manifest struct {
-	ID         string     `json:"id"` // 应用中心 key：必须小写、无连字符
-	Name       string     `json:"name"`
-	Desc       string     `json:"desc"`
-	Version    string     `json:"version"`
-	RegisterID int        `json:"registerId"` // INFO.id，自研建议 >=98 且互不重复
-	IconFile   string     `json:"iconFile,omitempty"`
-	Params     []Param    `json:"params,omitempty"` // 安装时表单（值可在模板里用 {{ENV:NAME}} 引用）
-	Beta       bool       `json:"beta,omitempty"`   // 配方未经真机验证，UI 挂 β 牌
-	Docker     DockerSpec `json:"docker"`
-	Health     HealthSpec `json:"health"`
-	PostShell  string     `json:"postShell,omitempty"` // 可选后置钩子（自家店允许 shell）
+	ID          string     `json:"id"` // 应用中心 key：必须小写、无连字符
+	Name        string     `json:"name"`
+	Desc        string     `json:"desc"`
+	Version     string     `json:"version"`
+	RegisterID  int        `json:"registerId"` // INFO.id，自研建议 >=98 且互不重复
+	IconFile    string     `json:"iconFile,omitempty"`
+	Params      []Param    `json:"params,omitempty"`      // 安装时表单（值可在模板里用 {{ENV:NAME}} 引用）
+	Beta        bool       `json:"beta,omitempty"`        // 配方未经真机验证，UI 挂 β 牌
+	SubPathBase bool       `json:"subPathBase,omitempty"` // 应用只认根 base(<base href="/">)：反代走商店 /gate/ 重写 base
+	Docker      DockerSpec `json:"docker"`
+	Health      HealthSpec `json:"health"`
+	PostShell   string     `json:"postShell,omitempty"` // 可选后置钩子（自家店允许 shell）
 }
 
 type Catalog struct {
@@ -497,12 +500,24 @@ func writePluginNginx(t *Task, m *Manifest) error {
 		t.logf("无发布端口，跳过反代(应用中心入口走 cgi 重定向)")
 		return nil
 	}
+	up := "http://127.0.0.1:" + hp + "/"
+	if m.SubPathBase {
+		// 只认根 base 的 SPA：走商店 /gate/ 重写 <base href>
+		ap := C.addr
+		if i := strings.LastIndex(ap, ":"); i >= 0 {
+			ap = ap[i+1:]
+		}
+		if ap == "" {
+			ap = "8400"
+		}
+		up = fmt.Sprintf("http://127.0.0.1:%s/gate/%s/", ap, m.ID)
+	}
 	conf := fmt.Sprintf(
 		"location = /plugin/%s/%s {\n    return 301 /plugin/%s/%s/;\n}\n"+
-			"location ^~ /plugin/%s/%s/ {\n    add_header Cache-Control \"no-store\";\n    proxy_pass http://127.0.0.1:%s/;\n"+
+			"location ^~ /plugin/%s/%s/ {\n    add_header Cache-Control \"no-store\";\n    proxy_pass %s\n"+
 			"    proxy_http_version 1.1;\n    proxy_set_header Host $host;\n    proxy_set_header X-Real-IP $remote_addr;\n"+
 			"    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n    proxy_set_header X-Forwarded-Proto $scheme;\n    proxy_read_timeout 300s;\n}\n",
-		C.uid, m.ID, C.uid, m.ID, C.uid, m.ID, hp)
+		C.uid, m.ID, C.uid, m.ID, C.uid, m.ID, up)
 	path := "/etc/nginx/conf.d/luci/" + m.ID + "-uc.conf"
 	if err := writeFile(t, path, conf, false); err != nil {
 		return err
@@ -962,62 +977,55 @@ func main() {
 	mux.HandleFunc("/api/action", apiAction)
 	mux.HandleFunc("/api/task", apiTask)
 	mux.HandleFunc("/api/nat", apiNat)
-	// —— AniRSS 反代网关：qB 式同源反代 + HTML 注入调试脚本（厂商 nginx 无 sub_filter，注入自己来） ——
-	mux.HandleFunc("/ani/", func(w http.ResponseWriter, r *http.Request) {
-		path := strings.TrimPrefix(r.URL.Path, "/ani")
-		if path == "" || path == "/" {
-			path = "/"
+	// —— 通用子路径网关：给只认根路径的 SPA(homebridge UI 等 Angular base-href 类) ——
+	// /gate/<id>/<path> → 应用端口，HTML 里 <base href="/"> 重写成厂商子路径，
+	// JS/路由/API/WebSocket(ReverseProxy 原生 upgrade)全部跟着 base 归位。
+	mux.HandleFunc("/gate/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/gate/"), "/", 2)[0]
+		rest := strings.TrimPrefix(r.URL.Path, "/gate/"+id)
+		if rest == "" {
+			rest = "/"
 		}
-		if path == "/wdbg.js" {
-			w.Header().Set("Content-Type", "application/javascript")
-			w.Header().Set("Cache-Control", "no-store")
-			w.Write([]byte(debugJS))
-			return
-		}
-		if strings.HasSuffix(path, "/log") && r.Method == http.MethodPost {
-			body, _ := io.ReadAll(io.LimitReader(r.Body, 8192))
-			if !C.dryRun && len(body) > 0 {
-				if f, err := os.OpenFile("/data/apps/store/webdebug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
-					f.Write(body)
-					f.Write([]byte("\n"))
-					f.Close()
-				}
-			}
-			w.Write([]byte("ok"))
-			return
-		}
-		up := "http://127.0.0.1:8300" + path
-		if r.URL.RawQuery != "" {
-			up += "?" + r.URL.RawQuery
-		}
-		req, _ := http.NewRequest(r.Method, up, r.Body)
-		req.Header.Set("Accept-Encoding", "identity")
-		if h := r.Header.Get("Cookie"); h != "" {
-			req.Header.Set("Cookie", h)
-		}
-		resp, err := http.DefaultClient.Do(req)
+		cat, err := loadCatalog()
 		if err != nil {
-			http.Error(w, "ani upstream: "+err.Error(), 502)
+			http.Error(w, "catalog: "+err.Error(), 500)
 			return
 		}
-		defer resp.Body.Close()
-		for _, h := range []string{"Set-Cookie"} {
-			for _, v := range resp.Header.Values(h) {
-				w.Header().Add(h, v)
+		var m *Manifest
+		for i := range cat.Apps {
+			if cat.Apps[i].ID == id {
+				m = &cat.Apps[i]
 			}
 		}
-		ct := resp.Header.Get("Content-Type")
-		w.Header().Set("Content-Type", ct)
-		w.Header().Set("Cache-Control", "no-store")
-		w.WriteHeader(resp.StatusCode)
-		if strings.Contains(ct, "text/html") {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
-			body = bytes.Replace(body, []byte("</head>"),
-				[]byte("<script src=\"./wdbg.js\"></script></head>"), 1)
-			w.Write(body)
+		if m == nil || hostPort(m) == "" {
+			http.Error(w, "unknown app or no port", 404)
 			return
 		}
-		io.Copy(w, resp.Body)
+		target := &url.URL{Scheme: "http", Host: "127.0.0.1:" + hostPort(m)}
+		prefix := "/plugin/" + C.uid + "/" + id + "/"
+		rp := &httputil.ReverseProxy{
+			Rewrite: func(pr *httputil.ProxyRequest) {
+				pr.SetURL(target)
+				pr.Out.URL.Path = rest
+				pr.SetXForwarded()
+			},
+			ModifyResponse: func(resp *http.Response) error {
+				if !strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
+					return nil
+				}
+				body, err := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
+				resp.Body.Close()
+				if err != nil {
+					return err
+				}
+				body = bytes.Replace(body, []byte(`<base href="/"`), []byte(`<base href="`+prefix+`"`), 1)
+				resp.Body = io.NopCloser(bytes.NewReader(body))
+				resp.ContentLength = int64(len(body))
+				resp.Header.Set("Content-Length", fmt.Sprint(len(body)))
+				return nil
+			},
+		}
+		rp.ServeHTTP(w, r)
 	})
 	// —— WebView 调试收集：注入脚本把手机侧 console/错误打回这里 ——
 	mux.HandleFunc("/debug.js", func(w http.ResponseWriter, r *http.Request) {
