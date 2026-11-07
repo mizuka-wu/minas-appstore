@@ -45,7 +45,7 @@
         },
         {
           "name": "QB_SAVE_PATH",
-          "label": "默认保存路径（须在 /media 用户库树内）",
+          "label": "默认保存路径（容器内路径，用户库根=/media，如 /media/番剧、/media/downloads）",
           "default": "/media/番剧"
         }
       ],
@@ -71,7 +71,7 @@
         "url": "http://127.0.0.1:8200/",
         "timeoutSec": 90
       },
-      "postShell": "sleep 3; TMP=$( {{DOCKER}} logs qbittorrent 2>&1 | grep -i 'temporary password' | tail -1 | awk '{print $NF}' ); J=/tmp/.qbcj-$$; curl -s --max-time 10 -c $J -X POST --data-urlencode 'username=admin' --data-urlencode \"password=$TMP\" http://127.0.0.1:8200/api/v2/auth/login >/dev/null && curl -s --max-time 10 -b $J -X POST --data-urlencode 'json={\"webui_password\":\"{{ENV:QB_PASSWORD}}\",\"webui_password_save\":true}' http://127.0.0.1:8200/api/v2/app/setPreferences && curl -s --max-time 10 -b $J -X POST --data-urlencode 'json={\"save_path\":\"{{ENV:QB_SAVE_PATH}}\"}' http://127.0.0.1:8200/api/v2/app/setPreferences >/dev/null; curl -s --max-time 10 -b $J http://127.0.0.1:8200/api/v2/app/defaultSavePath; rm -f $J; echo ' ← WebUI 密码与保存路径已按安装参数设置'"
+      "postShell": "SP='{{ENV:QB_SAVE_PATH}}'; case \"$SP\" in /media/*) : ;; *) echo \"⚠ 保存路径 $SP 不在 /media 用户库树内(影音库看不见)，改用 /media/番剧\"; SP=/media/番剧 ;; esac; sleep 3; TMP=$( {{DOCKER}} logs qbittorrent 2>&1 | grep -i 'temporary password' | tail -1 | awk '{print $NF}' ); J=/tmp/.qbcj-$$; curl -s --max-time 10 -c $J -X POST --data-urlencode 'username=admin' --data-urlencode \"password=$TMP\" http://127.0.0.1:8200/api/v2/auth/login >/dev/null && curl -s --max-time 10 -b $J -X POST --data-urlencode 'json={\"webui_password\":\"{{ENV:QB_PASSWORD}}\",\"webui_password_save\":true}' http://127.0.0.1:8200/api/v2/app/setPreferences && curl -s --max-time 10 -b $J -X POST --data-urlencode 'json={\"save_path\":\"$SP\"}' http://127.0.0.1:8200/api/v2/app/setPreferences >/dev/null; curl -s --max-time 10 -b $J http://127.0.0.1:8200/api/v2/app/defaultSavePath; rm -f $J; echo ' ← WebUI 密码与保存路径已按安装参数设置'"
     },
     {
       "id": "cftunnel",
