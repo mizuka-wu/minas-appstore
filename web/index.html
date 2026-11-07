@@ -97,8 +97,11 @@ async function load(){
   appCache={};(d.apps||[]).forEach(a=>appCache[a.id]=a);
   document.getElementById('apps').innerHTML=(d.apps||[]).map(a=>{
     const ps=(a.docker.ports[0]||'').split(':'),port=ps.length>=3?ps[1]:ps[0];
+    const ctr=ps.length>=3?ps[2]:(ps.length===2?ps[1]:ps[0]);
     const dot=a.running?'<span class="dot run"></span>':(a.containerState?'<span class="dot warn"></span>':'<span class="dot"></span>');
+    const portTxt=a.docker.network==='host'?('host :'+port):(port+' → '+ctr);
     const chips=[
+      '<span class="chip n">端口 '+portTxt+'</span>',
       a.beta?'<span class="chip warn">β 未实测</span>':'',
       a.running?'<span class="chip ok">运行中</span>':(a.containerState?'<span class="chip warn">'+esc(a.containerState)+'</span>':'<span class="chip n">未安装</span>'),
       a.registered?'<span class="chip ok">应用中心 ✓</span>':''
