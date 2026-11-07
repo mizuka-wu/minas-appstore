@@ -113,9 +113,8 @@
     {
       "id": "homebridge",
       "name": "Homebridge (+miot)",
-      "desc": "β 未在 MINAS 实测。把米家设备桥接进 HomeKit。homebridge-miot 是 homebridge 的插件而非独立应用——本商品一体安装：起官方 homebridge 容器后自动 npm 装 miot 插件并重启",
+      "desc": "把米家设备桥接进 HomeKit。homebridge-miot 是 homebridge 的插件而非独立应用——本商品一体安装：起官方 homebridge 容器后自动 npm 装 miot 插件并重启。登录/配设备建议电脑浏览器开 UI",
       "version": "latest",
-      "beta": true,
       "registerId": 904,
       "iconFile": "homebridge.png",
       "docker": {
@@ -140,6 +139,102 @@
       },
       "subPathBase": true,
       "postShell": "{{DOCKER}} exec homebridge npm --prefix /var/lib/homebridge install homebridge-miot && {{DOCKER}} restart homebridge && echo 'homebridge-miot 已装好，去 UI(:8581) 配插件即可'"
+    },
+    {
+      "id": "emby",
+      "name": "Emby",
+      "desc": "β 未在 MINAS 实测。影音库服务器，媒体走用户库树 /media(影音库同源可见)，网页端 :8600",
+      "version": "latest",
+      "beta": true,
+      "registerId": 905,
+      "iconFile": "emby.png",
+      "docker": {
+        "image": "amilys/embyserver:latest",
+        "ports": [
+          "8600:8096"
+        ],
+        "volumes": [
+          "{{DATA}}/config:/config",
+          "{{POOL}}:/media"
+        ],
+        "env": {
+          "TZ": "Asia/Shanghai"
+        },
+        "memory": "1g",
+        "cpus": "2.0"
+      },
+      "health": {
+        "url": "http://127.0.0.1:8600/web/index.html",
+        "timeoutSec": 240
+      },
+      "postShell": "echo '装完去 :8600 建库，媒体根目录选 /media(=用户库树)'"
+    },
+    {
+      "id": "jellyfin",
+      "name": "Jellyfin",
+      "desc": "β 未在 MINAS 实测。开源影音库服务器，媒体走用户库树 /media(影音库同源可见)，网页端 :8700",
+      "version": "latest",
+      "beta": true,
+      "registerId": 906,
+      "iconFile": "jellyfin.png",
+      "docker": {
+        "image": "jellyfin/jellyfin:latest",
+        "ports": [
+          "8700:8096"
+        ],
+        "volumes": [
+          "{{DATA}}/config:/config",
+          "{{POOL}}:/media"
+        ],
+        "env": {
+          "TZ": "Asia/Shanghai"
+        },
+        "memory": "1g",
+        "cpus": "2.0"
+      },
+      "health": {
+        "url": "http://127.0.0.1:8700/web/",
+        "timeoutSec": 240
+      },
+      "postShell": "echo '装完去 :8700 建库，媒体根目录选 /media(=用户库树)'"
+    },
+    {
+      "id": "alist",
+      "name": "AList",
+      "desc": "β 未在 MINAS 实测。把网盘(115/阿里/OneDrive…)挂载成本地目录与 WebDAV，配 qB 下载或给影音库补源，网页端 :8800",
+      "version": "latest",
+      "beta": true,
+      "registerId": 907,
+      "iconFile": "alist.png",
+      "params": [
+        {
+          "name": "ALIST_ADMIN_PASSWORD",
+          "label": "AList 管理员(admin)密码",
+          "type": "password",
+          "required": true
+        }
+      ],
+      "docker": {
+        "image": "xlist/alist:latest",
+        "ports": [
+          "8800:5244"
+        ],
+        "volumes": [
+          "{{DATA}}:/opt/alist/data"
+        ],
+        "env": {
+          "PUID": "0",
+          "PGID": "0",
+          "TZ": "Asia/Shanghai"
+        },
+        "memory": "256m",
+        "cpus": "1.0"
+      },
+      "health": {
+        "url": "http://127.0.0.1:8800/ping",
+        "timeoutSec": 180
+      },
+      "postShell": "sleep 5; {{DOCKER}} exec alist /app/alist admin set '{{ENV:ALIST_ADMIN_PASSWORD}}' && echo 'admin 密码已设为安装参数；去 :8800 登录加网盘存储'"
     }
   ]
 }
