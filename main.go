@@ -457,6 +457,7 @@ func buildEntry(m *Manifest, v int) map[string]any {
 	}
 	return map[string]any{
 		"status": "running", "install": true, "upgrade": false, "enable": true,
+		"online": true, "autograde": false, // 应用中心出卡片的门槛字段，缺了整卡不显示
 		"changetime": time.Now().Unix(),
 		"icon":       fmt.Sprintf("/icon/%s.icon?v=%d", m.ID, v),
 		"progress":   "100",
@@ -466,7 +467,8 @@ func buildEntry(m *Manifest, v int) map[string]any {
 			"title": m.Name, "desc": m.Desc,
 			"icon": fmt.Sprintf("/%s.icon?v=%d", m.ID, v),
 			"type": "url", "dev_type": []int{1, 2, 3, 4},
-			"url": "/index.html", "sortid": "", "widget": map[string]any{},
+			"permission": []string{"admin"}, "widget": []any{},
+			"url": "/index.html", "sortid": "",
 		},
 	}
 }
