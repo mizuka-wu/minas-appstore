@@ -61,3 +61,37 @@ make build                      # dist/store = linux/arm64
 只应暴露于可信 LAN。设 `STORE_TOKEN` 后所有写接口要求 `X-Store-Token`。
 store 以 root 跑（docker.sock + .list 写权限 + 插件目录），token 泄露 = NAS root，
 别把它挂到公网或给访客 WiFi。
+
+## 快速部署（NAS）
+
+1. 从 [Releases](../../releases) 下载 `minas-appstore-linux-arm64`，放到 `/data/apps/store/store`
+2. 装 `deploy/thirddockerappstore.service`（改 `MINAS_UID`/`MINAS_IP`/`STORE_TOKEN`），unit 里可配远程货架：
+   ```ini
+   # 货架列表，有序；同名商品后者覆盖前者。留空=只用本地 catalog.json
+   Environment=CATALOG_SOURCES=github:mizuka-wu/minas-appstore-catalog@main
+   #   第三方货架直接追加：,github:someone/their-catalog@main
+   #   非 GitHub 直链也收：,https://example.com/catalog.json
+   Environment=CATALOG_TOKEN=<私有货架仓才需要，Contents:Read-only 的 fine-grained PAT>
+   ```
+3. `systemctl enable --now thirddockerappstore`，浏览器开 `http://<NAS>:8400`
+4. NAT 出网 unit（bridge 容器上网必需）见 `deploy/docker-nat.service`
+
+## 货架（清单）与引擎分离
+
+- 清单+图标住在独立仓库（官方货架 `minas-appstore-catalog`），商店开机自拉 + UI 🔄 手动拉，
+  每次替换自动备份 `catalog.json.pre-pull-*`；**上新一款应用不需要动引擎**
+- 可配**多个货架源**（自己的+第三方的混排），同名应用**后配的源整体覆盖**
+- 想加应用/自建货架 → [CONTRIBUTING.md](CONTRIBUTING.md)；字段手册 → [docs/manifest.md](docs/manifest.md)
+
+## HTTP API
+
+| | |
+|---|---|
+| `GET /api/apps` | 商品 + 容器实况 + 注册状态（含 `vendorUninstalled`：米家那边卸过的提示）|
+| `POST /api/action` | `{id, action:install\|update\|uninstall, params:{}}` → taskId |
+| `GET /api/task?id=` | 任务日志 |
+| `GET/POST /api/catalog` | 货架来源状态 / 手动拉新 |
+| `GET/POST /api/nat` | bridge 出网规则状态 / 注入 / 卸载 |
+| `/gate/<id>/…` | 子路径网关：base-href 重写 + Set-Cookie Path 平移（manifest `subPathBase`）|
+
+写接口带 `X-Store-Token`（unit 里的 `STORE_TOKEN`）。

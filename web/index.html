@@ -65,8 +65,10 @@ input:focus{outline:none;border-color:var(--acc2)}
 <header>
   <div class="logo">🛍️</div>
   <div><h1>私有商店</h1><div class="sub">MINAS · 第三方 Docker 应用</div></div>
+  <button class="gear" onclick="pullCat()" title="从远程货架刷新清单">🔄</button>
   <button class="gear" onclick="tgTok()">⚙️</button>
 </header>
+<div id="catinfo" style="font-size:12px;color:var(--sub);padding:2px 4px 8px"></div>
 <div id="tokcfg"><div class="cfg">X-Store-Token（本地访问留空）</div>
   <input id="tok" placeholder="粘贴令牌"> 
   <button style="margin-top:8px" onclick="saveTok()">保存</button></div>
@@ -92,6 +94,8 @@ function saveTok(){localStorage.setItem('storeToken',document.getElementById('to
 let curTask=null,poll=null;
 async function api(p,opt){opt=opt||{};opt.headers=Object.assign({'X-Store-Token':tok()},opt.headers||{});return (await fetch(p,opt)).json()}
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+async function pullCat(){try{const d=await api('api/catalog',{method:'POST'});alert(d.ok||('刷新失败: '+(d.error||'?')));loadCat();load();}catch(e){alert('刷新失败 '+e)}}
+async function loadCat(){try{const c=await api('api/catalog');document.getElementById('catinfo').textContent='货架 '+(c.sources||[]).join(' + ')+' · '+c.apps+' 商品 · 更新 '+c.updated;}catch(e){}}
 async function load(){
   const d=await api('api/apps');
   appCache={};(d.apps||[]).forEach(a=>appCache[a.id]=a);
@@ -102,13 +106,14 @@ async function load(){
     const portTxt=a.docker.network==='host'?('host :'+port):(port+' → '+ctr);
     const chips=[
       '<span class="chip n">端口 '+portTxt+'</span>',
+      a.archived?'<span class="chip warn">已下架</span>':'',
       a.beta?'<span class="chip warn">β 未实测</span>':'',
       a.running?'<span class="chip ok">运行中</span>':(a.containerState?'<span class="chip warn">'+esc(a.containerState)+'</span>':'<span class="chip n">未安装</span>'),
       a.registered?'<span class="chip ok">应用中心 ✓</span>':(a.vendorUninstalled?'<span class="chip warn">入口已被米家卸载 · 按卸载可清容器</span>':'')
     ].join('');
   document.getElementById('apps').insertAdjacentHTML('beforeend','<div style="grid-column:1/-1;font-size:12px;opacity:.65;line-height:1.6;padding:2px 4px">※ 安装/更新/卸载请以本商店为准。在米家 App 插件中心里卸载只会摘走入口卡片，容器和数据依然在本机运行——回到此处按「卸载」才会彻底清理。</div>');
     const open=a.running&&port?'<a class="open" href="http://'+d.nasIP+':'+port+'/" target="_blank">打开 ↗</a>':'';
-    const acts=a.containerState?(open+(a.running?'<button class="gray" onclick="act(\'update\',\''+a.id+'\')">更新</button>':'')+'<button class="red" onclick="act(\'uninstall\',\''+a.id+'\')">卸载</button>'):
+    const acts=a.containerState?(open+(a.running&&!a.archived?'<button class="gray" onclick="act(\'update\',\''+a.id+'\')">更新</button>':'')+'<button class="red" onclick="act(\'uninstall\',\''+a.id+'\')">卸载</button>'):(a.archived?'<span style="font-size:12px;opacity:.55">已下架 · 不再提供安装</span>':
       ('<button onclick="act(\'install\',\''+a.id+'\')">安装</button>');
     return '<div class="card"><div class="row1">'+dot+'<span class="name">'+esc(a.name)+'</span><span class="ver">v'+esc(a.version)+'</span>'+(a.beta?'<span class="beta">β</span>':'')+'</div>'+
       '<div class="desc">'+esc(a.desc)+'</div><div class="chips">'+chips+'</div><div class="acts">'+acts+'</div></div>';
@@ -157,7 +162,7 @@ async function pollTask(){
   if(t.done){clearInterval(poll);document.getElementById('taskname').textContent=t.kind+' '+t.appId+' → '+(t.state==='ok'?'✔ 完成':'✘ '+t.error);load()}
 }
 function closeTask(){curTask=null;clearInterval(poll);document.getElementById('taskbox').classList.remove('on')}
-document.getElementById('tok').value=tok();load();loadNat();setInterval(()=>{if(!curTask){load();loadNat()}},10000);
+document.getElementById('tok').value=tok();load();loadNat();loadCat();setInterval(()=>{if(!curTask){load();loadNat()}},10000);
 async function loadNat(){
   try{
     const n=await api('api/nat');const el=document.getElementById('nat');el.style.display='flex';

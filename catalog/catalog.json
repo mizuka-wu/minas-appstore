@@ -111,6 +111,37 @@
       "postShell": "echo '隧道就绪后在 CF Zero Trust 配 Public Hostname 指向 NAS 服务；metrics: http://{{NAS_IP}}:20240'"
     },
     {
+      "id": "homebridge",
+      "name": "Homebridge (+miot)",
+      "desc": "已下架。米家→HomeKit 桥接方案已被 Home Assistant(自带米家集成)取代；曾装过且残留容器的仍可在此卸载清理",
+      "version": "latest",
+      "registerId": 904,
+      "iconFile": "homebridge.png",
+      "docker": {
+        "image": "homebridge/homebridge:legacy",
+        "network": "host",
+        "ports": [
+          "8581"
+        ],
+        "volumes": [
+          "{{DATA}}:/homebridge"
+        ],
+        "env": {
+          "TZ": "Asia/Shanghai",
+          "ENABLE_AVAHI": "1"
+        },
+        "memory": "384m",
+        "cpus": "1.0"
+      },
+      "health": {
+        "url": "http://127.0.0.1:8581/",
+        "timeoutSec": 600
+      },
+      "subPathBase": true,
+      "postShell": "{{DOCKER}} exec homebridge npm --prefix /var/lib/homebridge install homebridge-miot && {{DOCKER}} restart homebridge && echo 'homebridge-miot 已装好，去 UI(:8581) 配插件即可'",
+      "archived": true
+    },
+    {
       "id": "homeassistant",
       "name": "Home Assistant",
       "desc": "β 未在 MINAS 实测。智能家居中枢：一体自带米家集成(xiaomi-miot)，可再经 HomeKit Bridge 桥给苹果家庭。host 网络 :8123，数据库放 pool 盘护 eMMC。登录配置建议电脑浏览器",

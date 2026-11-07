@@ -7,7 +7,9 @@ package main
 import (
 	"bytes"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -32,15 +34,17 @@ var webIndex []byte
 // ---------------- 配置 ----------------
 
 type cfg struct {
-	addr      string
-	catalog   string
-	dockerBin string
-	uid       string // 米家数字 UID，注册表路径用
-	nasIP     string // 应用中心 redirect 用的 LAN IP
-	token     string // 非空则 POST 接口必须带 X-Store-Token
-	plugindir string // /data/plugin
-	assets    string // 商店资产目录（icons/）
-	dryRun    bool   // docker 命令只打印不执行（本地联调）
+	addr         string
+	catalog      string
+	dockerBin    string
+	uid          string // 米家数字 UID，注册表路径用
+	nasIP        string // 应用中心 redirect 用的 LAN IP
+	token        string // 非空则 POST 接口必须带 X-Store-Token
+	plugindir    string // /data/plugin
+	assets       string // 商店资产目录（icons/）
+	dryRun       bool   // docker 命令只打印不执行（本地联调）
+	catalogSpecs string // 远程货架列表(逗号分隔)：github:owner/repo[@ref] | https://…/catalog.json；同名商品后者覆盖前者
+	catalogToken string // github 货架读 token(私有仓必需，随请求发往 api.github.com)
 }
 
 var C cfg
@@ -81,6 +85,7 @@ type Manifest struct {
 	IconFile    string     `json:"iconFile,omitempty"`
 	Params      []Param    `json:"params,omitempty"`      // 安装时表单（值可在模板里用 {{ENV:NAME}} 引用）
 	Beta        bool       `json:"beta,omitempty"`        // 配方未经真机验证，UI 挂 β 牌
+	Archived    bool       `json:"archived,omitempty"`    // 下架：禁装，容器若在仍可卸载/可见
 	SubPathBase bool       `json:"subPathBase,omitempty"` // 应用只认根 base(<base href="/">)：反代走商店 /gate/ 重写 base
 	Docker      DockerSpec `json:"docker"`
 	Health      HealthSpec `json:"health"`
@@ -102,6 +107,207 @@ func loadCatalog() (*Catalog, error) {
 		return nil, err
 	}
 	return &c, nil
+}
+
+// ---------------- 远程货架（清单+图标独立仓库；可配多个源，同名商品后者覆盖） ----------------
+
+type catSrc struct {
+	kind string // github | url
+	repo string // owner/repo
+	ref  string
+	url  string // 直链清单
+}
+
+func catalogSources() []catSrc {
+	var out []catSrc
+	for _, raw := range strings.Split(C.catalogSpecs, ",") {
+		spec := strings.TrimSpace(raw)
+		if spec == "" {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(spec, "github:"):
+			repo := strings.TrimPrefix(spec, "github:")
+			ref := "main"
+			if i := strings.LastIndex(repo, "@"); i > 0 {
+				repo, ref = repo[:i], repo[i+1:]
+			}
+			out = append(out, catSrc{kind: "github", repo: repo, ref: ref})
+		case strings.HasPrefix(spec, "http://"), strings.HasPrefix(spec, "https://"):
+			out = append(out, catSrc{kind: "url", url: spec})
+		}
+	}
+	return out
+}
+
+func (s catSrc) String() string {
+	if s.kind == "github" {
+		return "github:" + s.repo + "@" + s.ref
+	}
+	return s.url
+}
+
+// validateCatalog 远端清单底线校验，坏清单不许落地
+func validateCatalog(b []byte) (*Catalog, error) {
+	var c Catalog
+	if json.Unmarshal(b, &c) != nil || c.SchemaVersion < 1 || len(c.Apps) == 0 {
+		return nil, errors.New("清单校验失败(schemaVersion/apps)")
+	}
+	seen := map[string]bool{}
+	for i := range c.Apps {
+		id := c.Apps[i].ID
+		if !keyRe.MatchString(id) || seen[id] {
+			return nil, fmt.Errorf("清单含非法/重复 id %q", id)
+		}
+		seen[id] = true
+	}
+	return &c, nil
+}
+
+func fetchCatalogFrom(src catSrc) ([]byte, error) {
+	if src.kind == "url" {
+		resp, err := (&http.Client{Timeout: 30 * time.Second}).Get(src.url)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			return nil, fmt.Errorf("%s -> %d", src.url, resp.StatusCode)
+		}
+		return io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	}
+	u := fmt.Sprintf("https://api.github.com/repos/%s/contents/catalog.json?ref=%s", src.repo, src.ref)
+	req, _ := http.NewRequest("GET", u, nil)
+	req.Header.Set("User-Agent", "minas-appstore")
+	if C.catalogToken != "" {
+		req.Header.Set("Authorization", "Bearer "+C.catalogToken)
+	}
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("github contents -> %d: %.120s", resp.StatusCode, body)
+	}
+	var f struct {
+		Encoding string `json:"encoding"`
+		Content  string `json:"content"`
+	}
+	if json.Unmarshal(body, &f) != nil || f.Encoding != "base64" {
+		return nil, errors.New("github contents 响应异常")
+	}
+	return base64.StdEncoding.DecodeString(strings.ReplaceAll(f.Content, "\n", ""))
+}
+
+// ghRepoGet 取 github 货架仓单文件(图标同步用)
+func ghRepoGet(src catSrc, path string) ([]byte, error) {
+	u := fmt.Sprintf("https://api.github.com/repos/%s/contents/%s?ref=%s", src.repo, path, src.ref)
+	req, _ := http.NewRequest("GET", u, nil)
+	req.Header.Set("User-Agent", "minas-appstore")
+	if C.catalogToken != "" {
+		req.Header.Set("Authorization", "Bearer "+C.catalogToken)
+	}
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("%s -> %d", path, resp.StatusCode)
+	}
+	var f struct {
+		Encoding string `json:"encoding"`
+		Content  string `json:"content"`
+	}
+	if json.Unmarshal(body, &f) != nil || f.Encoding != "base64" {
+		return nil, fmt.Errorf("%s 响应异常", path)
+	}
+	return base64.StdEncoding.DecodeString(strings.ReplaceAll(f.Content, "\n", ""))
+}
+
+// pullCatalog 按序拉全部货架源合并(同名后者覆盖前者)，原子替换本地清单(先备份)，
+// 再按需补齐各源 icons/ 里缺失的图标。至少要有一个源成功才落地。
+func pullCatalog() (string, error) {
+	srcs := catalogSources()
+	if len(srcs) == 0 {
+		return "", errors.New("未配置远程货架(-catalog-sources)")
+	}
+	merged := []Manifest{}
+	srcOf := map[string]int{} // app id -> merged 下标
+	var errs []string
+	okN := 0
+	for _, src := range srcs {
+		b, err := fetchCatalogFrom(src)
+		if err != nil {
+			errs = append(errs, src.String()+": "+err.Error())
+			continue
+		}
+		c, err := validateCatalog(b)
+		if err != nil {
+			errs = append(errs, src.String()+": "+err.Error())
+			continue
+		}
+		okN++
+		for _, m := range c.Apps {
+			if idx, exists := srcOf[m.ID]; exists {
+				merged[idx] = m // 后者覆盖
+			} else {
+				srcOf[m.ID] = len(merged)
+				merged = append(merged, m)
+			}
+		}
+	}
+	if okN == 0 {
+		return "", fmt.Errorf("全部货架源失败: %s", strings.Join(errs, " | "))
+	}
+	out, _ := json.Marshal(Catalog{SchemaVersion: 1, Apps: merged})
+	if cur, e := os.ReadFile(C.catalog); e == nil {
+		_ = os.WriteFile(C.catalog+".pre-pull-"+time.Now().Format("20060102-150405"), cur, 0o644)
+	}
+	tmp := C.catalog + ".pull-tmp"
+	if err := os.WriteFile(tmp, out, 0o644); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmp, C.catalog); err != nil {
+		return "", err
+	}
+	// 图标按需补：缺哪个从该商品的来源源拉哪个
+	iconsDir := filepath.Join(C.assets, "icons")
+	_ = os.MkdirAll(iconsDir, 0o755)
+	got := 0
+	for i := range merged {
+		f := merged[i].IconFile
+		if f == "" || !strings.HasSuffix(f, ".png") {
+			continue
+		}
+		if _, e := os.Stat(filepath.Join(iconsDir, f)); e == nil {
+			continue
+		}
+		src := srcs[0]
+		_ = src // 源归属在合并时丢失亦可接受：逐个源尝试即可，图标名冲突概率极低
+		for _, sc := range srcs {
+			if sc.kind != "github" {
+				continue
+			}
+			if data, e := ghRepoGet(sc, "icons/"+f); e == nil {
+				if os.WriteFile(filepath.Join(iconsDir, f), data, 0o644) == nil {
+					got++
+					break
+				}
+			}
+		}
+	}
+	msg := fmt.Sprintf("%d/%d 源成功，共 %d 商品", okN, len(srcs), len(merged))
+	if got > 0 {
+		msg += fmt.Sprintf("，补图标 %d 枚", got)
+	}
+	if len(errs) > 0 {
+		msg += "；失败源: " + strings.Join(errs, " | ")
+	}
+	return msg, nil
 }
 
 func (cat *Catalog) find(id string) *Manifest {
@@ -514,7 +720,7 @@ func writePluginNginx(t *Task, m *Manifest) error {
 	}
 	conf := fmt.Sprintf(
 		"location = /plugin/%s/%s {\n    return 301 /plugin/%s/%s/;\n}\n"+
-			"location ^~ /plugin/%s/%s/ {\n    add_header Cache-Control \"no-store\";\n    proxy_pass %s\n"+
+			"location ^~ /plugin/%s/%s/ {\n    add_header Cache-Control \"no-store\";\n    proxy_pass %s;\n"+
 			"    proxy_http_version 1.1;\n    proxy_set_header Host $host;\n    proxy_set_header X-Real-IP $remote_addr;\n"+
 			"    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n    proxy_set_header X-Forwarded-Proto $scheme;\n    proxy_read_timeout 300s;\n}\n",
 		C.uid, m.ID, C.uid, m.ID, C.uid, m.ID, up)
@@ -728,6 +934,9 @@ func doInstall(t *Task) error {
 	if m == nil {
 		return fmt.Errorf("catalog 中无 %s", t.AppID)
 	}
+	if m.Archived && t.Kind == "install" {
+		return fmt.Errorf("%s 已下架(archived)——不再提供安装", t.AppID)
+	}
 	if !keyRe.MatchString(m.ID) {
 		return fmt.Errorf("id %q 不合规（小写字母数字下划线，禁连字符）", m.ID)
 	}
@@ -863,6 +1072,47 @@ func authOK(r *http.Request) bool {
 	return C.token == "" || r.Header.Get("X-Store-Token") == C.token
 }
 
+func envOr(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
+}
+
+// apiCatalog GET 货架状态 / POST 从远程货架刷新清单
+func apiCatalog(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		if !authOK(r) {
+			jsonOut(w, 401, map[string]string{"error": "bad token"})
+			return
+		}
+		msg, err := pullCatalog()
+		if err != nil {
+			jsonOut(w, 502, map[string]string{"error": err.Error()})
+			return
+		}
+		jsonOut(w, 200, map[string]string{"ok": msg})
+		return
+	}
+	st, _ := os.Stat(C.catalog)
+	mtime := ""
+	if st != nil {
+		mtime = st.ModTime().Format("2006-01-02 15:04:05")
+	}
+	n := 0
+	if cat, err := loadCatalog(); err == nil {
+		n = len(cat.Apps)
+	}
+	srcs := []string{}
+	for _, sc := range catalogSources() {
+		srcs = append(srcs, sc.String())
+	}
+	if len(srcs) == 0 {
+		srcs = append(srcs, "local")
+	}
+	jsonOut(w, 200, map[string]any{"sources": srcs, "apps": n, "updated": mtime})
+}
+
 func jsonOut(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
@@ -980,6 +1230,8 @@ func main() {
 	flag.StringVar(&C.plugindir, "plugindir", "/data/plugin", "插件根")
 	flag.StringVar(&C.assets, "assets", "/data/apps/store", "商店资产/日志目录")
 	flag.BoolVar(&C.dryRun, "dry-run", false, "docker 命令只打印")
+	flag.StringVar(&C.catalogSpecs, "catalog-sources", os.Getenv("CATALOG_SOURCES"), "远程货架列表(逗号分隔，有序，同名后者覆盖)")
+	flag.StringVar(&C.catalogToken, "catalog-token", os.Getenv("CATALOG_TOKEN"), "github 货架读 token")
 	flag.Parse()
 	if C.uid == "" {
 		log.Fatal("必须提供 -uid / MINAS_UID")
@@ -990,6 +1242,17 @@ func main() {
 	mux.HandleFunc("/api/action", apiAction)
 	mux.HandleFunc("/api/task", apiTask)
 	mux.HandleFunc("/api/nat", apiNat)
+	mux.HandleFunc("/api/catalog", apiCatalog)
+	if C.catalogSpecs != "" {
+		go func() { // 开机自拉一次：失败只用本地版，不打扰服务
+			time.Sleep(8 * time.Second)
+			if msg, err := pullCatalog(); err != nil {
+				log.Printf("货架自拉失败(用本地版): %v", err)
+			} else {
+				log.Printf("货架自拉: %s", msg)
+			}
+		}()
+	}
 	// —— 通用子路径网关：给只认根路径的 SPA(homebridge UI 等 Angular base-href 类) ——
 	// /gate/<id>/<path> → 应用端口，HTML 里 <base href="/"> 重写成厂商子路径，
 	// JS/路由/API/WebSocket(ReverseProxy 原生 upgrade)全部跟着 base 归位。
