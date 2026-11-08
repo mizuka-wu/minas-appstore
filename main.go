@@ -902,11 +902,22 @@ func writeFile(t *Task, path, content string, exec bool) error {
 
 func writePluginUI(t *Task, m *Manifest) error {
 	base := srcBase(m.ID)
-	idx := fmt.Sprintf("<!DOCTYPE html><html><head><meta charset=\"utf-8\">\n<meta http-equiv=\"refresh\" content=\"0;url=http://%s:%s/\">\n</head><body>跳转中…</body></html>\n", C.nasIP, hostPort(m))
+	target := fmt.Sprintf("http://%s:%s/", C.nasIP, hostPort(m))
+	idx := fmt.Sprintf("<!DOCTYPE html><html><head><meta charset=\"utf-8\">\n"+
+		"<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n"+
+		"<style>body{font-family:-apple-system,sans-serif;background:#f5f6f8;display:flex;align-items:center;justify-content:center;min-height:92vh;margin:0}"+
+		".c{background:#fff;border-radius:16px;padding:28px 22px;width:86%%;max-width:340px;text-align:center;box-shadow:0 4px 18px rgba(0,0,0,.07)}"+
+		"h3{margin:0 0 10px;font-size:18px}p{color:#888;font-size:13px;line-height:1.6;margin:0 0 18px}"+
+		"a.btn{display:block;background:#3b82f6;color:#fff;text-decoration:none;padding:12px;border-radius:10px;font-size:15px}"+
+		"code{display:block;color:#3b82f6;font-size:12px;margin-top:14px;word-break:break-all}</style></head>\n"+
+		"<body><div class=\"c\"><h3>%s</h3><p>需在 NAS 同一内网打开<br>连不上说明当前不在内网</p>"+
+		"<a class=\"btn\" href=\"%s\">打开 %s</a><code>%s</code></div></body></html>\n",
+		m.Name, target, m.Name, target)
 	cgi := "#!/bin/sh\n" +
+		"UI=\"" + filepath.Join(srcBase(m.ID), "ui") + "\"\n" +
 		"if [ -z \"$FILEURI\" ] || [ \"$FILEURI\" = \"index.html\" ]; then\n" +
 		"  echo -e \"Content-type: text/html\\r\\n\\r\\n\"\n" +
-		"  cat \"$(dirname \"$0\")/index.html\"\n" +
+		"  cat \"$UI/index.html\"\n" +
 		"elif [ -f \"$FILEREQ\" ]; then\n" +
 		"  mime=$(file -b --mime-type \"$FILEREQ\")\n" +
 		"  echo -e \"Content-type: $mime\\r\\n\\r\\n\"\n" +
