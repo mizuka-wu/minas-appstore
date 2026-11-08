@@ -83,6 +83,7 @@ input:focus{outline:none;border-color:var(--acc2)}
 <button class="gray" style="margin-top:6px" onclick="loadImgs()">🧹 扫描镜像</button>
 <button style="margin-top:6px" onclick="delImgs()">删除勾选</button></div>
 <div id="nat"><span class="nname">容器出网</span><span class="nchips" id="natchips"></span><span id="natbtn"></span></div>
+<div id="rc" style="display:none"><span class="nname">root 通道 :2323</span><span class="nchips" id="rcchips"></span><span id="rcbtn"></span></div>
 <div class="grid" id="apps">加载中…</div>
 <div id="arch"></div>
 
@@ -222,7 +223,19 @@ async function pollTask(){
   if(t.done){clearInterval(poll);document.getElementById('taskname').textContent=t.kind+' '+t.appId+' → '+(t.state==='ok'?'✔ 完成':'✘ '+t.error);load()}
 }
 function closeTask(){curTask=null;clearInterval(poll);document.getElementById('taskbox').classList.remove('on')}
-document.getElementById('tok').value=tok();load();loadNat();loadCat();setInterval(()=>{if(!curTask){load();loadNat()}},10000);
+document.getElementById('tok').value=tok();load();loadNat();loadCat();setInterval(()=>{if(!curTask){load();loadNat();loadRc()}},10000);
+async function loadRc(){
+  try{
+    const n=await api('api/rootchan');const el=document.getElementById('rc');el.style.display='flex';
+    document.getElementById('rcchips').innerHTML=n.listening?'<span class="chip ok">通道在位</span>':'<span class="chip bad">通道断开</span>';
+    document.getElementById('rcbtn').innerHTML=n.listening?'<span class="chip n" style="align-self:center">开机/周期自愈自动拉起</span>':'<button onclick="rcOpen()">拉起通道</button>';
+  }catch(e){}
+}
+async function rcOpen(){
+  const r=await api('api/rootchan',{method:'POST'});
+  if(r.error)return alert(r.error);
+  loadRc();
+}
 async function loadNat(){
   try{
     const n=await api('api/nat');const el=document.getElementById('nat');el.style.display='flex';

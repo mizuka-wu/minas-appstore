@@ -151,6 +151,13 @@ make build        # dist/store = linux/arm64
 部署细节（经 root shell 下发、二进制热替换姿势）见 `deploy/README.md`。
 ⚠️ 局域网 http.server 喂二进制时的经典事故：服务端进程 cwd 锁定启动时的目录，往别的目录 copy 新构建等于没喂——**部署后必须双端 md5 核验**。
 
+## root 通道守护（:2323）
+
+MINAS 的 root shell（2323 raw shell）由社区工具链注入，**重启必失**（触发它的 cron 在 tmpfs）。
+商店内置接管：开机 15s + 每 5 分钟探测 `127.0.0.1:2323`，不通则用设备自带 socat 原样拉起（argv 与工具链一致，runner/nc 用法零变化）。拉起后与商店进程脱钩，商店自己重启不断通道；端口被工具链占着时商店旁观不抢。UI 有「root 通道」状态卡与手动「拉起通道」按钮；API `GET/POST /api/rootchan`。
+
+⚠️ 这是 LAN 内**无认证 root shell**（与工具链形态一致），只可用于可信内网，切勿端口转发到公网。
+
 ## 遇到问题？先走这张表
 
 | 症状 | 九成原因 | 去处 |

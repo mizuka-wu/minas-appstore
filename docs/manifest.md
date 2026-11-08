@@ -43,6 +43,8 @@
 
 ## docker 段
 
+- `hostname`（可选）：钉死容器主机名。host 网络容器默认继承 NAS 主机名——若应用自带 mDNS（HomeKit/zeroconf 类）会与厂商 avahi 抢名字导致 iPhone 端解析震荡，务必给一个不与 NAS 主机名相同的值（如 `homeassistant`）。
+
 ```json
 "docker": {
   "image": "amilys/embyserver:latest",     // 必须有 linux/arm64 变体！MINAS 是 ARM

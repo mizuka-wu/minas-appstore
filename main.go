@@ -1032,6 +1032,81 @@ func natUnitPresent() bool {
 	return err == nil
 }
 
+// ---------------- root 通道管家（:2323） ----------------
+// 工具链注入的 socat raw shell 重启必失（/var 是 tmpfs，触发它的 cron 也没了）。
+// 商店作为宿主 root 进程接管守护：开机/周期探测 127.0.0.1:2323，不通就原样拉起
+// socat（argv 逐字抄自现场进程）。socat 启动后与商店进程脱钩（孤儿进程继续服务），
+// 商店自己重启不影响已拉起的通道；端口若已被占（工具链同 boot 再注入），重复 bind
+// 失败即退，无副作用。仅内网裸 shell，语义与老 2323 完全一致（runner 无需改动）。
+
+const rootChanPort = 2323
+
+func rootChanListening() bool {
+	c, err := net.DialTimeout("tcp", "127.0.0.1:2323", 1500*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	c.Close()
+	return true
+}
+
+func rootChanInject() error {
+	bin, err := exec.LookPath("socat")
+	if err != nil {
+		bin = "/bin/socat"
+	}
+	// 注意 argv 结构：EXEC 地址必须整段一个参数（程序名带空格参数由 socat 自行拆分）；
+	// 拆成两个参数会被解析成第 3 个地址直接退出（真机踩坑：接管后秒死，通道拉不回）
+	cmd := exec.Command(bin, "TCP-LISTEN:2323,reuseaddr,fork", "EXEC:/bin/sh -i,pty,stderr,setsid,sigint,sane")
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
+}
+
+func healRootChan() {
+	if C.dryRun || rootChanListening() {
+		return
+	}
+	t := &Task{ID: "selfheal-rootchan", AppID: "rootchan", Kind: "heal"}
+	if err := rootChanInject(); err != nil {
+		t.logf("自愈: root 通道拉起失败: %v", err)
+		return
+	}
+	go func() {
+		time.Sleep(2 * time.Second)
+		if rootChanListening() {
+			t.logf("自愈: root 通道 :2323 已拉起（LAN 裸 shell，同工具链语义）")
+		} else {
+			t.logf("自愈: socat 拉起后端口仍不通（可能被占或缺 socat）")
+		}
+	}()
+}
+
+func apiRootChan(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	switch r.Method {
+	case http.MethodGet:
+		enc := json.NewEncoder(w)
+		_ = enc.Encode(map[string]any{"port": rootChanPort, "listening": rootChanListening()})
+	case http.MethodPost:
+		if rootChanListening() {
+			_, _ = w.Write([]byte(`{"ok":1,"msg":"通道在位"}`))
+			return
+		}
+		healRootChan()
+		time.Sleep(2500 * time.Millisecond)
+		if rootChanListening() {
+			_, _ = w.Write([]byte(`{"ok":1,"msg":"已拉起"}`))
+		} else {
+			_, _ = w.Write([]byte(`{"error":"拉起失败：端口仍不通（缺 socat 或端口被占且假死）"}`))
+		}
+	default:
+		http.Error(w, "method", http.StatusMethodNotAllowed)
+	}
+}
+
 // natInject 直接挂 MASQUERADE（网卡取默认路由出口），幂等
 func natInject() (string, error) {
 	script := `IF=$(ip route | awk '/default/{print $5; exit}'); [ -n "$IF" ] || { echo "找不到默认路由网卡"; exit 1; }; ` +
@@ -1302,6 +1377,8 @@ func selfManifest() *Manifest {
 
 // healSelf 商店自卡自愈：厂商开机同步可能把自己的 .list 条目/反代洗掉（图标卡片双灭）
 func healSelf() {
+	// root 通道 2323 重启必失 → 每轮自愈先探活补挂
+	healRootChan()
 	// 出网规则重启必丢（iptables 不持久 + dockerd iptables:false）：开机统一补挂
 	if !C.dryRun && C.assets != "" && !natRulePresent() {
 		t0 := &Task{ID: "selfheal-nat", AppID: "nat", Kind: "heal"}
@@ -1778,6 +1855,7 @@ func main() {
 	mux.HandleFunc("/api/action", apiAction)
 	mux.HandleFunc("/api/task", apiTask)
 	mux.HandleFunc("/api/nat", apiNat)
+	mux.HandleFunc("/api/rootchan", apiRootChan)
 	mux.HandleFunc("/api/catalog", apiCatalog)
 	mux.HandleFunc("/api/settings", apiSettings)
 	mux.HandleFunc("/api/images", apiImages)
