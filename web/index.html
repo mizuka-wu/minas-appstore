@@ -220,7 +220,7 @@ async function loadNat(){
     const n=await api('api/nat');const el=document.getElementById('nat');el.style.display='flex';
     document.getElementById('natchips').innerHTML=n.rule?'<span class="chip ok">出网规则在位</span>':'<span class="chip bad">出网规则缺失</span>'+
       (n.unit?'<span class="chip ok">boot unit ✓</span>':'<span class="chip n">重启后需再注入</span>');
-    document.getElementById('natbtn').innerHTML=n.rule?'<button class="red" onclick="natAct(\'remove\')">卸载</button>':'<button onclick="natAct(\'inject\')">注入规则</button>';
+    document.getElementById('natbtn').innerHTML=n.rule?'<span class="chip n" style="align-self:center">开机自愈自动补挂</span>':'<button onclick="natAct(\'inject\')">注入规则</button>';
   }catch(e){}
 }
 async function natAct(a){

@@ -4,12 +4,12 @@ After=network-online.target docker.service
 Wants=network-online.target
 
 [Service]
+# 可选 API 令牌：留空/不写=本机商店免 token（写接口裸放行，仅 LAN 使用场景）
 Type=simple
 Restart=on-failure
 RestartSec=5
 Environment=MINAS_UID=<你的米家数字UID>
 Environment=MINAS_IP=<NAS局域网IP>
-Environment=STORE_TOKEN=***
 # cftunnel 商品需要（CF Zero Trust 建远程托管隧道后的 token）：
 #Environment=CF_TUNNEL_TOKEN=***
 ExecStart=/data/apps/store/store -addr :8400 -catalog /data/apps/store/catalog.json

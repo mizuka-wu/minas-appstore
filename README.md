@@ -58,14 +58,14 @@ make build                      # dist/store = linux/arm64
 
 ## 安全边界
 
-只应暴露于可信 LAN。设 `STORE_TOKEN` 后所有写接口要求 `X-Store-Token`。
+只应暴露于可信 LAN。默认免 token（本机商店场景）；如需在不可信网络暴露，设 `STORE_TOKEN` 即启用 `X-Store-Token` 校验。
 store 以 root 跑（docker.sock + .list 写权限 + 插件目录），token 泄露 = NAS root，
 别把它挂到公网或给访客 WiFi。
 
 ## 快速部署（NAS）
 
 1. 从 [Releases](../../releases) 下载 `minas-appstore-linux-arm64`，放到 `/data/apps/store/store`
-2. 装 `deploy/thirddockerappstore.service`（改 `MINAS_UID`/`MINAS_IP`/`STORE_TOKEN`），unit 里可配远程货架：
+2. 装 `deploy/thirddockerappstore.service`（改 `MINAS_UID`/`MINAS_IP`），unit 里可配远程货架：
    ```ini
    # 货架列表，有序；同名商品后者覆盖前者。留空=只用本地 catalog.json
    Environment=CATALOG_SOURCES=github:mizuka-wu/minas-appstore-catalog@main
@@ -94,4 +94,4 @@ store 以 root 跑（docker.sock + .list 写权限 + 插件目录），token 泄
 | `GET/POST /api/nat` | bridge 出网规则状态 / 注入 / 卸载 |
 | `/gate/<id>/…` | 子路径网关：base-href 重写 + Set-Cookie Path 平移（manifest `subPathBase`）|
 
-写接口带 `X-Store-Token`（unit 里的 `STORE_TOKEN`）。
+未设 `STORE_TOKEN` 时写接口免校验；设了则需带 `X-Store-Token`。

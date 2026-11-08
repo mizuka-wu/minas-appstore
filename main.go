@@ -997,6 +997,11 @@ func natRemove() (string, error) {
 
 func apiNat(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
+		// 本机商店已去 token；撤 MASQUERADE 谁都能点 = bridge 容器集体断网，只留 GET 状态展示
+		if r.Form.Get("action") == "remove" || r.URL.Query().Get("action") == "remove" {
+			jsonOut(w, 403, map[string]string{"error": "已禁用：出网规则只增不删（重启本会丢，商店开机自动补挂）"})
+			return
+		}
 		if !authOK(r) {
 			jsonOut(w, 401, map[string]string{"error": "bad token"})
 			return
@@ -1239,6 +1244,15 @@ func selfManifest() *Manifest {
 
 // healSelf 商店自卡自愈：厂商开机同步可能把自己的 .list 条目/反代洗掉（图标卡片双灭）
 func healSelf() {
+	// 出网规则重启必丢（iptables 不持久 + dockerd iptables:false）：开机统一补挂
+	if !C.dryRun && C.assets != "" && !natRulePresent() {
+		t0 := &Task{ID: "selfheal-nat", AppID: "nat", Kind: "heal"}
+		if out, err := natInject(); err != nil {
+			t0.logf("自愈: MASQUERADE 补挂失败: %v / %s", err, out)
+		} else {
+			t0.logf("自愈: 出网规则已补挂(%s)", out)
+		}
+	}
 	list, err := readList()
 	if err != nil {
 		return
