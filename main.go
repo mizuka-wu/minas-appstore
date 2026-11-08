@@ -924,9 +924,11 @@ func writePluginUI(t *Task, m *Manifest) error {
 		"h3{margin:0 0 10px;font-size:18px}p{color:#888;font-size:13px;line-height:1.6;margin:0 0 18px}"+
 		"a.btn{display:block;background:#3b82f6;color:#fff;text-decoration:none;padding:12px;border-radius:10px;font-size:15px}"+
 		"code{display:block;color:#3b82f6;font-size:12px;margin-top:14px;word-break:break-all}</style></head>\n"+
-		"<body><div class=\"c\"><h3>%s</h3><p>需在 NAS 同一内网打开<br>连不上说明当前不在内网</p>"+
+		"<body><div class=\"c\"><h3>%s</h3><p id=\"tip\">需在 NAS 同一内网打开<br>连不上说明当前不在内网</p>"+
 		"<a class=\"btn\" href=\"http://%s:%s/\">打开 %s</a><code>http://%s:%s/</code></div>\n"+
-		"<script>var h=location.hostname;if(h&&!/^127\\./.test(h)){var u='http://'+h+':%s/';document.querySelector('a.btn').href=u;document.querySelector('code').textContent=u}</script></html>\n",
+		// hostname 只有是内网私有 IP 才跟随（LAN 直连场景）；域名形态=米家云中继等远程通道，
+		// 中继地址上没有这个端口，必须保留烧录的 LAN IP（2026-11-08 用户实测"IP 不对"的根因）
+		"<script>var h=location.hostname;if(/^(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.)/.test(h)){var u='http://'+h+':%s/';document.querySelector('a.btn').href=u;document.querySelector('code').textContent=u}else if(h&&!/^127\\.|^localhost$/.test(h)){document.getElementById('tip').innerHTML='当前经远程通道('+h+')连接<br>下面的地址需在 NAS 内网才能打开，可先抄下地址回家再用浏览器访问'}</script></html>\n",
 		m.Name, C.nasIP, hostPort(m), m.Name, C.nasIP, hostPort(m), hostPort(m))
 	cgi := "#!/bin/sh\n" +
 		"UI=\"" + filepath.Join(srcBase(m.ID), "ui") + "\"\n" +
