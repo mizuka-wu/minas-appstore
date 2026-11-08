@@ -1644,10 +1644,14 @@ func main() {
 	mux.HandleFunc("/api/catalog", apiCatalog)
 	mux.HandleFunc("/api/settings", apiSettings)
 	mux.HandleFunc("/api/images", apiImages)
-	go func() { // 启动自愈：延迟等 docker/注册表就绪（用户方案"定期看哪些装了、缺了就重注入"的开机版）
+	go func() { // 自愈（用户方案完整版）：开机 15s 先来一轮，之后每 5 分钟巡检重注入——厂商会持续洗 /data/plugin 与注册表，一次开机版不够（2026-11-08 实证一天洗两轮）
 		time.Sleep(15 * time.Second)
 		healSelf()
 		healMissing()
+		for range time.Tick(5 * time.Minute) {
+			healSelf()
+			healMissing()
+		}
 	}()
 	if effSources() != "" {
 		go func() { // 开机自拉一次：失败只用本地版，不打扰服务
