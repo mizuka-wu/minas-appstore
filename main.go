@@ -1162,6 +1162,52 @@ func doUpdate(t *Task) error {
 	return nil
 }
 
+// healMissing 启动自愈：装了(容器存在)但注册表条目缺/被厂商清空 → 幂等补 UI/反代/注册。
+// 场景：厂商 OTA/nginx 同步回收 conf、历史安装中断留半成品；每次启动跑一遍即可（图标随注册表走）。
+func healMissing() {
+	if C.dryRun || C.assets == "" {
+		return
+	}
+	cat, err := loadCatalog()
+	if err != nil {
+		return
+	}
+	st := dockerState()
+	list, err := readList()
+	if err != nil {
+		return
+	}
+	t := &Task{ID: "selfheal", AppID: "*", Kind: "heal"}
+	for _, m := range cat.Apps {
+		cn := containerName(&m)
+		if st[cn] == "" {
+			continue // 没装过
+		}
+		raw := list[m.ID]
+		if raw != nil {
+			var e struct {
+				Frontend map[string]any `json:"frontend"`
+			}
+			if json.Unmarshal(raw, &e) == nil && len(e.Frontend) > 0 {
+				continue // 注册完好
+			}
+		}
+		t.logf("自愈: %s 容器在(%s)但应用中心条目缺/被清 → 重注入", m.ID, st[cn])
+		if err := writePluginUI(t, &m); err != nil {
+			t.logf("自愈 %s UI 失败: %v", m.ID, err)
+			continue
+		}
+		if err := writePluginNginx(t, &m); err != nil {
+			t.logf("自愈 %s 反代失败: %v", m.ID, err)
+		}
+		if err := register(t, &m); err != nil {
+			t.logf("自愈 %s 注册失败: %v", m.ID, err)
+		} else {
+			t.logf("自愈 %s 完成 ✔", m.ID)
+		}
+	}
+}
+
 // ---------------- HTTP ----------------
 
 func authOK(r *http.Request) bool {
@@ -1407,6 +1453,10 @@ func main() {
 	mux.HandleFunc("/api/nat", apiNat)
 	mux.HandleFunc("/api/catalog", apiCatalog)
 	mux.HandleFunc("/api/settings", apiSettings)
+	go func() { // 启动自愈：延迟等 docker/注册表就绪（用户方案"定期看哪些装了、缺了就重注入"的开机版）
+		time.Sleep(15 * time.Second)
+		healMissing()
+	}()
 	if effSources() != "" {
 		go func() { // 开机自拉一次：失败只用本地版，不打扰服务
 			time.Sleep(8 * time.Second)
