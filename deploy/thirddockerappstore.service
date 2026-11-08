@@ -1,15 +1,22 @@
 [Unit]
 Description=MINAS private app store
-After=network-online.target docker.service
+After=network-online.target var.mount docker.service
 Wants=network-online.target
+RequiresMountsFor=/data
+# ⚠️ 这台机器没有 data.mount unit（/data 属根文件系统）——写 After=data.mount 会让
+# systemd 报 unknown dependency，服务直接起不来。实踩过。
 
 [Service]
-# 可选 API 令牌：留空/不写=本机商店免 token（写接口裸放行，仅 LAN 使用场景）
 Type=simple
-Restart=on-failure
+# always 而非 on-failure：开机窗口内抢 :8400 撞「地址已用」的退出不算"故障"，
+# on-failure 会让 systemd 放弃拉起——商店不自启的血案根因，别改回去
+Restart=always
 RestartSec=5
 Environment=MINAS_UID=<你的米家数字UID>
-# MINAS_IP 可不配：留空自动探测本机局域网 IP（--nasip 仅特殊拓扑覆盖）
+# NAS IP 自动探测无需配置（--nasip 仅特殊拓扑覆盖）
+# 货架源/令牌配置正道 = 商店 UI ⚙️（存 settings.json 即改即生效）；
+# 下面只作首启兜底。公开货架仓匿名拉取即可，**别为它造 token、更别把外部 token 塞 unit**：
+#Environment=CATALOG_SOURCES=github:mizuka-wu/minas-appstore-catalog@main
 # cftunnel 商品需要（CF Zero Trust 建远程托管隧道后的 token）：
 #Environment=CF_TUNNEL_TOKEN=***
 ExecStart=/data/apps/store/store -addr :8400 -catalog /data/apps/store/catalog.json
