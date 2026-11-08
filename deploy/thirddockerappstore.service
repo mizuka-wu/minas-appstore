@@ -9,7 +9,7 @@ Type=simple
 Restart=on-failure
 RestartSec=5
 Environment=MINAS_UID=<你的米家数字UID>
-Environment=MINAS_IP=<NAS局域网IP>
+# MINAS_IP 可不配：留空自动探测本机局域网 IP（--nasip 仅特殊拓扑覆盖）
 # cftunnel 商品需要（CF Zero Trust 建远程托管隧道后的 token）：
 #Environment=CF_TUNNEL_TOKEN=***
 ExecStart=/data/apps/store/store -addr :8400 -catalog /data/apps/store/catalog.json

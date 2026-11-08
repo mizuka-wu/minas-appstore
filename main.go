@@ -1672,10 +1672,7 @@ func main() {
 	flag.StringVar(&C.catalog, "catalog", "/data/apps/store/catalog.json", "catalog 路径")
 	flag.StringVar(&C.dockerBin, "docker", "/data/docker/docker", "docker 二进制")
 	flag.StringVar(&C.uid, "uid", os.Getenv("MINAS_UID"), "米家数字 UID")
-	flag.StringVar(&C.nasIP, "nasip", os.Getenv("MINAS_IP"), "NAS 局域网 IP")
-	if C.nasIP == "" {
-		C.nasIP = autoLanIP() // 没配就不写死：默认路由出口的本机 IP
-	}
+	flag.StringVar(&C.nasIP, "nasip", "", "NAS 局域网 IP（留空=自动探测默认路由本机 IP，仅特殊拓扑才需要手动覆盖）")
 	flag.StringVar(&C.token, "token", os.Getenv("STORE_TOKEN"), "API 令牌（空=不校验）")
 	flag.StringVar(&C.plugindir, "plugindir", "/data/plugin", "插件根")
 	flag.StringVar(&C.assets, "assets", "/data/apps/store", "商店资产/日志目录")
@@ -1683,6 +1680,11 @@ func main() {
 	flag.StringVar(&C.catalogSpecs, "catalog-sources", os.Getenv("CATALOG_SOURCES"), "远程货架列表(逗号分隔，有序，同名后者覆盖)")
 	flag.StringVar(&C.catalogToken, "catalog-token", os.Getenv("CATALOG_TOKEN"), "github 货架读 token")
 	flag.Parse()
+
+	nasAuto := C.nasIP == ""
+	if nasAuto {
+		C.nasIP = autoLanIP()
+	}
 	if C.uid == "" {
 		log.Fatal("必须提供 -uid / MINAS_UID")
 	}
@@ -1700,6 +1702,12 @@ func main() {
 		healSelf()
 		healMissing()
 		for range time.Tick(5 * time.Minute) {
+			if nasAuto { // IP 可能被 DHCP 改了：内存值跟着探测走，新渲染一律用新 IP
+				if ip := autoLanIP(); ip != C.nasIP {
+					log.Printf("NAS IP 变化: %s -> %s（自动探测）", C.nasIP, ip)
+					C.nasIP = ip
+				}
+			}
 			healSelf()
 			healMissing()
 		}

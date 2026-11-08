@@ -65,7 +65,7 @@ store 以 root 跑（docker.sock + .list 写权限 + 插件目录），token 泄
 ## 快速部署（NAS）
 
 1. 从 [Releases](../../releases) 下载 `minas-appstore-linux-arm64`，放到 `/data/apps/store/store`
-2. 装 `deploy/thirddockerappstore.service`（改 `MINAS_UID`/`MINAS_IP`），unit 里可配远程货架：
+2. 装 `deploy/thirddockerappstore.service`（改 `MINAS_UID`；IP 自动探测无需配），unit 里可配远程货架：
    ```ini
    # 货架列表，有序；同名商品后者覆盖前者。留空=只用本地 catalog.json
    Environment=CATALOG_SOURCES=github:mizuka-wu/minas-appstore-catalog@main
