@@ -77,7 +77,11 @@ input:focus{outline:none;border-color:var(--acc2)}
   <button class="gray" style="margin-top:6px" onclick="addSrc()">＋ 添加货架源</button>
 <div class="cfg" style="margin-top:10px">货架 Token（仅私有 GitHub 仓需要，fine-grained PAT 只读 Contents；留空=不修改）</div>
   <input id="cattoken" placeholder="留空不修改">
-  <button style="margin-top:8px" onclick="saveCfg()">保存货架配置并拉新</button></div>
+  <button style="margin-top:8px" onclick="saveCfg()">保存货架配置并拉新</button>
+<div class="cfg" style="margin-top:16px">镜像清理（删除无容器引用的镜像释放 /data；在用镜像列灰不可选）</div>
+<div id="imgbox" style="margin-top:6px;font-size:12px">未加载</div>
+<button class="gray" style="margin-top:6px" onclick="loadImgs()">🧹 扫描镜像</button>
+<button style="margin-top:6px" onclick="delImgs()">删除勾选</button></div>
 <div id="nat"><span class="nname">容器出网</span><span class="nchips" id="natchips"></span><span id="natbtn"></span></div>
 <div class="grid" id="apps">加载中…</div>
 <div id="arch"></div>
@@ -104,6 +108,24 @@ function srcRow(v){const d=document.createElement('div');d.style.cssText='displa
  document.getElementById('srclist').appendChild(d)}
 function addSrc(){srcRow('')}
 async function loadCfg(){try{const s=await api('api/settings');const box=document.getElementById('srclist');box.innerHTML='';(s.sources?s.sources.split(','):[]).forEach(v=>srcRow(v.trim()));if(!box.children.length)srcRow('');document.getElementById('cattoken').placeholder=s.hasToken?'已设置（留空不改）':'私有仓才需要，留空即可';}catch(e){}}
+let imgCache=[];
+function fmtGB(b){return b>=1073741824?(b/1073741824).toFixed(1)+'G':(b/1048576).toFixed(0)+'M'}
+async function loadImgs(){const box=document.getElementById('imgbox');box.textContent='扫描中…';try{
+  const d=await api('api/images');imgCache=d.images||[];
+  const free=d.reclaimable||0;
+  const rows=imgCache.map(im=>{const inUse=(im.usedBy||[]).length>0;
+    return '<label style="display:flex;gap:6px;align-items:center;padding:3px 0'+(inUse?';opacity:.45':'')+'">'
+      +(inUse?'<span style="width:14px"></span>':'<input type="checkbox" class="imgck" value="'+im.id+'">')
+      +'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+im.ref+'</span>'
+      +'<span>'+im.human+'</span>'+(inUse?'<span title="'+im.usedBy.join(',')+'">在用</span>':'')+'</label>';}).join('');
+  box.innerHTML='<div style="margin-bottom:4px">共 '+imgCache.length+' 镜像 · 可回收 <b style="color:'+(free>1073741824?'#2c7a43':'#c0392b')+'">'+fmtGB(free)+'</b></div>'+rows;
+}catch(e){box.textContent='扫描失败: '+e}}
+async function delImgs(){const ids=[...document.querySelectorAll('.imgck:checked')].map(c=>c.value);
+  if(!ids.length){alert('先勾选要删的镜像');return}
+  if(!confirm('删除 '+ids.length+' 个镜像？拉过的话下次装还得重新导入'))return;
+  try{const d=await api('api/images',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});
+    let msg='删除 '+(d.deleted||[]).length+' 个';if((d.failed||[]).length)msg+='\n失败:\n'+d.failed.join('\n');
+    alert(msg);loadImgs();load();}catch(e){alert('删除失败 '+e)}}
 async function saveCfg(){const srcs=[...document.querySelectorAll('#srclist input')].map(i=>i.value.trim()).filter(Boolean).join(',');const b={sources:srcs};const t=document.getElementById('cattoken').value.trim();if(t)b.token=t;try{const d=await api('api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});alert(d.ok||('失败: '+(d.error||'?')));loadCat();load();}catch(e){alert('保存失败 '+e)}}
 function base(){const p=location.pathname;return p.endsWith('/')?p:p.replace(/\/[^\/]*$/,'/')}
 async function api(p,opt){opt=opt||{};opt.headers=Object.assign({'X-Store-Token':tok()},opt.headers||{});return (await fetch(base()+p,opt)).json()}

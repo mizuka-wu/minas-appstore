@@ -170,7 +170,8 @@
         "url": "http://127.0.0.1:8123/",
         "timeoutSec": 600
       },
-      "postShell": "{{DOCKER}} exec homeassistant sh -c 'mkdir -p /config/custom_components && [ -f /config/custom_components/xiaomi_miot/__init__.py ] || { curl -fsSL -o /tmp/miot.tgz https://codeload.github.com/al-one/hass-xiaomi-miot/tar.gz/refs/heads/master && tar -xzf /tmp/miot.tgz -C /tmp && cp -r /tmp/hass-xiaomi-miot-master/custom_components/xiaomi_miot /config/custom_components/ && rm -rf /tmp/miot.tgz /tmp/hass-xiaomi-miot-master; }; python -m pip install -q -i https://mirrors.aliyun.com/pypi/simple/ miot'; grep -q db_url /data/apps/homeassistant/config/configuration.yaml 2>/dev/null || printf '\\nrecorder:\\n  db_url: sqlite:////db/hass_v2.db\\n' >> /data/apps/homeassistant/config/configuration.yaml; {{DOCKER}} restart homeassistant"
+      "postShell": "{{DOCKER}} exec homeassistant sh -c 'mkdir -p /config/custom_components && [ -f /config/custom_components/xiaomi_miot/__init__.py ] || { curl -fsSL -o /tmp/miot.tgz https://codeload.github.com/al-one/hass-xiaomi-miot/tar.gz/refs/heads/master && tar -xzf /tmp/miot.tgz -C /tmp && cp -r /tmp/hass-xiaomi-miot-master/custom_components/xiaomi_miot /config/custom_components/ && rm -rf /tmp/miot.tgz /tmp/hass-xiaomi-miot-master; }; python -m pip install -q -i https://mirrors.aliyun.com/pypi/simple/ miot; python3 -c \"import json;p='/config/.storage/http';d=json.load(open(p));s=d['data']['stable'];s['use_x_forwarded_for']=True;s['trusted_proxies']=['127.0.0.1/32'];json.dump(d,open(p,'w'),indent=2)\" 2>/dev/null || true'; grep -q db_url /data/apps/homeassistant/config/configuration.yaml 2>/dev/null || printf '\\nrecorder:\\n  db_url: sqlite:////db/hass_v2.db\\n' >> /data/apps/homeassistant/config/configuration.yaml; {{DOCKER}} restart homeassistant",
+      "proxyPrefix": true
     },
     {
       "id": "emby",

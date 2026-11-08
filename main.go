@@ -88,6 +88,7 @@ type Manifest struct {
 	Beta        bool       `json:"beta,omitempty"`        // 配方未经真机验证，UI 挂 β 牌
 	Archived    bool       `json:"archived,omitempty"`    // 下架：禁装，容器若在仍可卸载/可见
 	SubPathBase bool       `json:"subPathBase,omitempty"` // 应用只认根 base(<base href="/">)：反代走商店 /gate/ 重写 base
+	ProxyPrefix bool       `json:"proxyPrefix,omitempty"` // 应用感知子路径(读 X-Forwarded-Prefix，如 HA)：反代带上该头
 	Docker      DockerSpec `json:"docker"`
 	Health      HealthSpec `json:"health"`
 	PostShell   string     `json:"postShell,omitempty"` // 可选后置钩子（自家店允许 shell）
@@ -592,6 +593,64 @@ func dockerState() map[string]string { // containerName -> running/exited/...
 	return st
 }
 
+// ---------------- 镜像仓库（磁盘清理用） ----------------
+
+type imageInfo struct {
+	ID      string   `json:"id"`
+	Ref     string   `json:"ref"`
+	Size    int64    `json:"size"`
+	Human   string   `json:"human"`
+	Created string   `json:"created"`
+	UsedBy  []string `json:"usedBy"` // 引用该镜像的容器名（含停止的）
+}
+
+func listImages() ([]imageInfo, int64, error) {
+	out, err := exec.Command(C.dockerBin, "images", "-a", "--format", "{{.ID}}\t{{.Repository}}:{{.Tag}}\t{{.Size}}\t{{.CreatedSince}}").CombinedOutput()
+	if err != nil {
+		return nil, 0, fmt.Errorf("docker images: %s", strings.TrimSpace(string(out)))
+	}
+	// 容器 → 镜像映射（-a 含已停容器）。容器 .Image 可能是名字或 id，统一解析成 sha 比对
+	refOut, _ := exec.Command(C.dockerBin, "ps", "-a", "--format", "{{.Image}}\t{{.Names}}").CombinedOutput()
+	used := map[string][]string{} // imageID(短/长前缀皆可) -> 容器名
+	for _, l := range strings.Split(strings.TrimSpace(string(refOut)), "\n") {
+		pp := strings.SplitN(l, "\t", 2)
+		if len(pp) != 2 || pp[0] == "" {
+			continue
+		}
+		shaOut, e := exec.Command(C.dockerBin, "image", "inspect", "-f", "{{.Id}}", pp[0]).CombinedOutput()
+		key := pp[0]
+		if e == nil {
+			key = strings.TrimSpace(string(shaOut))
+		}
+		used[key] = append(used[key], pp[1])
+	}
+	var list []imageInfo
+	var freeTotal int64
+	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		pp := strings.Split(l, "\t")
+		if len(pp) < 4 {
+			continue
+		}
+		// 长短 id 都试：容器引用是 sha256:…，images 输出默认短 id
+		var users []string
+		for k, v := range used {
+			if strings.HasPrefix(k, pp[0]) || strings.HasPrefix(pp[0], k) {
+				users = v
+			}
+		}
+		szOut, e := exec.Command(C.dockerBin, "image", "inspect", "-f", "{{.Size}}", pp[0]).CombinedOutput()
+		var sz int64
+		if e == nil {
+			fmt.Sscanf(strings.TrimSpace(string(szOut)), "%d", &sz)
+		}
+		if len(users) == 0 {
+			freeTotal += sz
+		}
+		list = append(list, imageInfo{ID: pp[0], Ref: pp[1], Size: sz, Human: pp[2], Created: pp[3], UsedBy: users})
+	}
+	return list, freeTotal, nil
+}
+
 func runArgs(m *Manifest) []string {
 	a := []string{"run", "-d", "--name", containerName(m), "--restart", "unless-stopped"}
 	if m.Docker.Memory != "" {
@@ -787,6 +846,11 @@ func writePluginNginx(t *Task, m *Manifest) error {
 			"    proxy_http_version 1.1;\n    proxy_set_header Host $host;\n    proxy_set_header X-Real-IP $remote_addr;\n"+
 			"    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n    proxy_set_header X-Forwarded-Proto $scheme;\n    proxy_read_timeout 300s;\n}\n",
 		C.uid, m.ID, C.uid, m.ID, C.uid, m.ID, up)
+	if m.ProxyPrefix {
+		// HA 类应用靠该头拼子路径资源 URL（qb/anirss 相对路径不需要，别乱加）
+		pfx := fmt.Sprintf("    proxy_set_header X-Forwarded-Prefix /plugin/%s/%s;\n", C.uid, m.ID)
+		conf = strings.Replace(conf, "    proxy_read_timeout", pfx+"    proxy_read_timeout", 1)
+	}
 	path := "/etc/nginx/conf.d/luci/" + m.ID + "-uc.conf"
 	if err := writeFile(t, path, conf, false); err != nil {
 		return err
@@ -1162,6 +1226,52 @@ func doUpdate(t *Task) error {
 	return nil
 }
 
+// selfManifest 商店自己的应用中心卡片（key=thirddockstore，注册 id=97，历史值勿改）
+func selfManifest() *Manifest {
+	return &Manifest{
+		ID: "thirddockstore", Name: "私有商店",
+		Desc: "自托管 Docker 应用商店：安装/更新/卸载/同源反代一体", Version: "1.0",
+		RegisterID: 97,
+		Docker:     DockerSpec{Ports: []string{"8400:8400"}},
+		Health:     HealthSpec{URL: "http://127.0.0.1:8400/api/apps"},
+	}
+}
+
+// healSelf 商店自卡自愈：厂商开机同步可能把自己的 .list 条目/反代洗掉（图标卡片双灭）
+func healSelf() {
+	list, err := readList()
+	if err != nil {
+		return
+	}
+	m := selfManifest()
+	ok := false
+	if raw := list[m.ID]; raw != nil {
+		var e struct {
+			Frontend map[string]any `json:"frontend"`
+		}
+		if json.Unmarshal(raw, &e) == nil && len(e.Frontend) > 0 {
+			ok = true
+		}
+	}
+	if ok {
+		return
+	}
+	t := &Task{ID: "selfheal-store", AppID: m.ID, Kind: "heal"}
+	t.logf("自愈: 商店自身卡片缺/被清 → 重注入")
+	if err := writePluginUI(t, m); err != nil {
+		t.logf("商店自卡 UI 失败: %v", err)
+		return
+	}
+	if err := writePluginNginx(t, m); err != nil {
+		t.logf("商店自卡反代失败: %v", err)
+	}
+	if err := register(t, m); err != nil {
+		t.logf("商店自卡注册失败: %v", err)
+	} else {
+		t.logf("商店自卡自愈完成 ✔")
+	}
+}
+
 // healMissing 启动自愈：装了(容器存在)但注册表条目缺/被厂商清空 → 幂等补 UI/反代/注册。
 // 场景：厂商 OTA/nginx 同步回收 conf、历史安装中断留半成品；每次启动跑一遍即可（图标随注册表走）。
 func healMissing() {
@@ -1365,6 +1475,72 @@ func apiApps(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, 200, map[string]any{"apps": apps, "nasIP": C.nasIP, "diskFreeGB": freeGB})
 }
 
+// apiImages GET=镜像清单(含在用标记与可回收量) POST=按 id 删除(删前复查容器引用，在用拒删)
+func apiImages(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		list, free, err := listImages()
+		if err != nil {
+			jsonOut(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		jsonOut(w, 200, map[string]any{"images": list, "reclaimable": free})
+		return
+	}
+	if !authOK(r) {
+		jsonOut(w, 401, map[string]string{"error": "bad token"})
+		return
+	}
+	var req struct {
+		IDs []string `json:"ids"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if len(req.IDs) == 0 {
+		jsonOut(w, 400, map[string]string{"error": "ids 为空"})
+		return
+	}
+	if len(req.IDs) > 60 {
+		jsonOut(w, 400, map[string]string{"error": "一次最多 60 个"})
+		return
+	}
+	// 双保险：删前再查一次容器引用（含停止容器），在用的一律拒
+	refOut, _ := exec.Command(C.dockerBin, "ps", "-a", "--format", "{{.Image}}").CombinedOutput()
+	used := map[string]bool{}
+	for _, ref := range strings.Fields(string(refOut)) {
+		sha, e2 := exec.Command(C.dockerBin, "image", "inspect", "-f", "{{.Id}}", ref).CombinedOutput()
+		if e2 == nil {
+			used[strings.TrimSpace(string(sha))] = true
+		}
+	}
+	var deleted, failed []string
+	for _, id := range req.IDs {
+		if len(id) < 12 || strings.ContainsAny(id, "/ "+string(rune(92))) {
+			failed = append(failed, id+": id 形态不对")
+			continue
+		}
+		norm := strings.TrimPrefix(id, "sha256:")
+		inUse := false
+		for k := range used {
+			if strings.HasPrefix(strings.TrimPrefix(k, "sha256:"), norm) || strings.HasPrefix(norm, strings.TrimPrefix(k, "sha256:")) {
+				inUse = true
+			}
+		}
+		if inUse {
+			failed = append(failed, id+": 有容器在用，已跳过")
+			continue
+		}
+		if out, e := exec.Command(C.dockerBin, "rmi", id).CombinedOutput(); e != nil {
+			failed = append(failed, id+": "+strings.TrimSpace(string(out)))
+		} else {
+			deleted = append(deleted, id)
+		}
+	}
+	_, free, _ := listImages()
+	log.Printf("镜像清理: 共 %d 请求，删 %d 败 %d，剩可回收 %d 字节", len(req.IDs), len(deleted), len(failed), free)
+	jsonOut(w, 200, map[string]any{"deleted": deleted, "failed": failed, "reclaimable": free})
+}
+
 func apiAction(w http.ResponseWriter, r *http.Request) {
 	if !authOK(r) {
 		jsonOut(w, 401, map[string]string{"error": "bad token"})
@@ -1453,8 +1629,10 @@ func main() {
 	mux.HandleFunc("/api/nat", apiNat)
 	mux.HandleFunc("/api/catalog", apiCatalog)
 	mux.HandleFunc("/api/settings", apiSettings)
+	mux.HandleFunc("/api/images", apiImages)
 	go func() { // 启动自愈：延迟等 docker/注册表就绪（用户方案"定期看哪些装了、缺了就重注入"的开机版）
 		time.Sleep(15 * time.Second)
+		healSelf()
 		healMissing()
 	}()
 	if effSources() != "" {
