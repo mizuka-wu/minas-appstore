@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -1514,6 +1515,8 @@ func apiApps(w http.ResponseWriter, r *http.Request) {
 		Manifest
 		Running           bool   `json:"running"`
 		Container         string `json:"containerState"`
+		DataDir           bool   `json:"dataDir"` // 无容器但 /data/apps/<id> 还留着残留数据
+		DataMB            int64  `json:"dataMB"`
 		Registered        bool   `json:"registered"`
 		VendorUninstalled bool   `json:"vendorUninstalled"` // 厂商插件中心卸过：条目在但 frontend 被清空
 	}
@@ -1533,11 +1536,79 @@ func apiApps(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		apps = append(apps, view{Manifest: m, Container: st[cn], Running: st[cn] == "running", Registered: reg, VendorUninstalled: vu})
+		if v := &apps[len(apps)-1]; v.Container == "" { // 未安装的才查残留数据（省 IO）
+			if dir := filepath.Join("/data/apps", m.ID); dirInfoOK(dir) {
+				v.DataDir = true
+				v.DataMB = dirSizeMB(dir)
+			}
+		}
 	}
 	jsonOut(w, 200, map[string]any{"apps": apps, "nasIP": C.nasIP, "diskFreeGB": freeGB})
 }
 
 // apiImages GET=镜像清单(含在用标记与可回收量) POST=按 id 删除(删前复查容器引用，在用拒删)
+func dirInfoOK(p string) bool {
+	fi, err := os.Lstat(p)
+	return err == nil && fi.IsDir() // 拒绝 symlink：数据目录必须是真目录
+}
+
+func dirSizeMB(p string) int64 {
+	var n int64
+	_ = filepath.WalkDir(p, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			if fi, e := d.Info(); e == nil {
+				n += fi.Size()
+			}
+		}
+		return nil
+	})
+	if n < 1024*1024 && n > 0 {
+		return 1
+	}
+	return n >> 20
+}
+
+// apiPurge 手动清理残留数据：容器还在就拒；路径锁死 /data/apps/<id>（防穿越）
+func apiPurge(w http.ResponseWriter, r *http.Request) {
+	if !authOK(r) {
+		jsonOut(w, 401, map[string]string{"error": "bad token"})
+		return
+	}
+	var req struct {
+		ID string `json:"id"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	id := req.ID
+	if id == "" {
+		id = r.URL.Query().Get("id")
+	}
+	if id == "" || !keyRe.MatchString(id) {
+		jsonOut(w, 400, map[string]string{"error": "非法 id"})
+		return
+	}
+	dir := filepath.Join("/data/apps", id)
+	if !dirInfoOK(dir) {
+		jsonOut(w, 404, map[string]string{"error": "无数据目录: " + dir})
+		return
+	}
+	for name := range dockerState() { // 任意容器(含停止态)占用则拒删
+		if name == id {
+			jsonOut(w, 403, map[string]string{"error": "容器 " + id + " 还在（含已停止），请先卸载"})
+			return
+		}
+	}
+	if r.Method == http.MethodGet {
+		jsonOut(w, 200, map[string]any{"dir": dir, "sizeMB": dirSizeMB(dir)})
+		return
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		jsonOut(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	log.Printf("purge %s 完成", dir)
+	jsonOut(w, 200, map[string]any{"ok": "已删除 " + dir})
+}
+
 func apiImages(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		list, free, err := listImages()
@@ -1697,6 +1768,7 @@ func main() {
 	mux.HandleFunc("/api/catalog", apiCatalog)
 	mux.HandleFunc("/api/settings", apiSettings)
 	mux.HandleFunc("/api/images", apiImages)
+	mux.HandleFunc("/api/purge", apiPurge)
 	go func() { // 自愈（用户方案完整版）：开机 15s 先来一轮，之后每 5 分钟巡检重注入——厂商会持续洗 /data/plugin 与注册表，一次开机版不够（2026-11-08 实证一天洗两轮）
 		time.Sleep(15 * time.Second)
 		healSelf()

@@ -48,13 +48,13 @@ make build                      # dist/store = linux/arm64
 
 部署见 `deploy/README.md`（经 2323 root shell 下发，systemd 常驻）。
 
-## Roadmap（v0.1 刻意没做）
+## 已进化项（v0.1 Roadmap 的还愿记录）
 
-- store 自身入驻应用中心的 self-register 子命令
-- catalog 热加载 / 从 GitHub raw 可选同步（失败不响，本地永远是真相）
-- 已装容器“认领”流程（现在是显式拒绝 + 状态自动识别）
-- registry 守护：厂商 OTA 洗注册表后自动补写（对齐 keep-apps 思路）
-- POST 接口 token 强制 + UI 首次设置向导
+- ✅ store 自身入驻应用中心（healSelf，key=thirddockstore）
+- ✅ 远程货架多源（GitHub 仓/https 直链，UI ⚙️ 可配，同名后者覆盖）
+- ✅ registry 守护：启动 15s + 每 5 分钟自愈（厂商同步会反复洗注册表/图标农场）
+- ✅ `/data` 磁盘水位监控 + 安装前熔断、镜像清理（🧹）、残留数据清理（🗑）
+- 待做：已装容器「认领」流程、首次设置向导
 
 ## 安全边界
 
@@ -82,6 +82,12 @@ store 以 root 跑（docker.sock + .list 写权限 + 插件目录），token 泄
   每次替换自动备份 `catalog.json.pre-pull-*`；**上新一款应用不需要动引擎**
 - 可配**多个货架源**（自己的+第三方的混排），同名应用**后配的源整体覆盖**
 - 想加应用/自建货架 → [CONTRIBUTING.md](CONTRIBUTING.md)；字段手册 → [docs/manifest.md](docs/manifest.md)
+
+## 卸载与数据语义
+- **卸载保留数据**：容器、注册条目、反代 conf、图标全拆，但 `/data/apps/<id>/`（配置/数据库）留在原地——重装即恢复。
+- **手动清理数据**：商店卡片对「无容器但有残留数据」的商品显示 `🗑 清理数据`（大小可见，二次确认）。API：`GET /api/purge?id=` 预览，`POST /api/purge {id}` 执行；容器还在（含已停止）拒删，路径锁死 `/data/apps/<id>`（拒 symlink/穿越）。pool 盘用户库树（如下载目录）不在清理范围——那是用户资产，商店不动。
+- **图标生效条件**：换图后引擎自动递增 `?v=N` 缓存号，但米家 App 有列表缓存——**手机杀后台、进出应用中心一次**才看到新图，不是商店 bug。
+- **图标素材规范**：300×300 RGBA PNG；官方 logo 先搜官方品牌资产，**警惕横版 logo+文字横幅切方**（HA 现役 logo=蓝房子白分叉，干净方形源=hass_frontend wheel `static/icons/favicon-512x512.png`）。
 
 ## HTTP API
 

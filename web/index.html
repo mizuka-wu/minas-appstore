@@ -154,7 +154,7 @@ async function load(){
     ].join('');
     const open=a.running&&port?'<a class="open" href="http://'+nasIP+':'+port+'/" target="_blank">打开 ↗</a>':'';
     const acts=a.containerState?(open+(a.running&&!a.archived?'<button class="gray" onclick="act(\'update\',\''+a.id+'\')">更新</button>':'')+'<button class="red" onclick="act(\'uninstall\',\''+a.id+'\')">卸载</button>'):(a.archived?'<span style="font-size:12px;opacity:.55">已下架 · 不再提供安装</span>':
-      ('<button onclick="act(\'install\',\''+a.id+'\')">安装</button>'))
+      ('<button onclick="act(\'install\',\''+a.id+'\')">安装</button>'))+purgeBtn(a)
     return '<div class="card"><div class="row1">'+dot+'<span class="name">'+esc(a.name)+'</span><span class="ver">v'+esc(a.version)+'</span>'+(a.beta?'<span class="beta">β</span>':'')+'</div>'+
       '<div class="desc">'+esc(a.desc)+'</div><div class="chips">'+chips+'</div><div class="acts">'+acts+'</div></div>';
   };
@@ -172,6 +172,14 @@ async function load(){
 }
 function tgArch(){localStorage.setItem('showArch',localStorage.getItem('showArch')==='1'?'0':'1');load()}
 let appCache={};
+function purgeBtn(a){
+  return (!a.containerState&&a.dataDir)?'<button class="red" onclick="purge(\''+a.id+'\','+a.dataMB+')">🗑 清理数据 '+(a.dataMB>=1024?(a.dataMB/1024).toFixed(1)+'G':a.dataMB+'M')+'</button>':'';
+}
+function purge(id,mb){
+  if(!confirm('彻底删除 /data/apps/'+id+'（约 '+(mb>=1024?(mb/1024).toFixed(1)+'G':mb+'M')+'）？\n配置、数据库、下载设置等全部丢失，不可恢复！'))return;
+  fetch(base()+'api/purge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})})
+    .then(r=>r.json()).then(d=>{ if(d.error)alert('清理失败: '+d.error); else{ alert(d.ok); load(); } }).catch(e=>alert('请求失败: '+e));
+}
 function act(action,id){
   if(action==='uninstall'){
     if(confirm('卸载 '+id+'？容器删除，/data/apps/'+id+' 配置保留。'))send(action,id,{});
