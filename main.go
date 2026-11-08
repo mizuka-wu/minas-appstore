@@ -57,8 +57,9 @@ var C cfg
 type DockerSpec struct {
 	Image         string            `json:"image"`
 	ContainerName string            `json:"containerName,omitempty"`
-	Command       []string          `json:"command,omitempty"` // 容器 command/args（每元素过模板）
-	Network       string            `json:"network,omitempty"` // host（HomeKit/mDNS 类必需；host 模式下不发布端口）
+	Command       []string          `json:"command,omitempty"`  // 容器 command/args（每元素过模板）
+	Network       string            `json:"network,omitempty"`  // host（HomeKit/mDNS 类必需；host 模式下不发布端口）
+	Hostname      string            `json:"hostname,omitempty"` // 钉死容器主机名：mDNS/.local 发现类应用（HomeKit）重建后不漂移（docker 默认 hostname=容器ID，update 即换名，iPhone 端 .local 解析作废）
 	Ports         []string          `json:"ports"`
 	Volumes       []string          `json:"volumes"`
 	Env           map[string]string `json:"env,omitempty"`
@@ -674,6 +675,9 @@ func runArgs(m *Manifest) []string {
 	}
 	if m.Docker.CPUs != "" {
 		a = append(a, "--cpus", m.Docker.CPUs)
+	}
+	if m.Docker.Hostname != "" {
+		a = append(a, "--hostname", m.Docker.Hostname)
 	}
 	if m.Docker.Network != "" {
 		a = append(a, "--network", m.Docker.Network) // host 网络禁发布端口，ports 仅作展示/注册元数据

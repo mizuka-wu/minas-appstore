@@ -164,7 +164,8 @@
           "TZ": "Asia/Shanghai"
         },
         "memory": "768m",
-        "cpus": "2.0"
+        "cpus": "2.0",
+        "hostname": "homeassistant"
       },
       "health": {
         "url": "http://127.0.0.1:8123/",
