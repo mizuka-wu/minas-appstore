@@ -1210,6 +1210,9 @@ func doInstall(t *Task) error {
 
 func doUninstall(t *Task) error {
 	diskWatch(t, "卸载前")
+	if !keyRe.MatchString(t.AppID) { // 纵深：就算任务从别的入口进来，删除也只认干净 key
+		return fmt.Errorf("非法 id: %s", t.AppID)
+	}
 	cat, _ := loadCatalog()
 	var m *Manifest
 	if cat != nil {
@@ -1697,6 +1700,10 @@ func apiAction(w http.ResponseWriter, r *http.Request) {
 	}
 	if id == "" || (kind != "install" && kind != "uninstall" && kind != "update") {
 		jsonOut(w, 400, map[string]string{"error": "需要 id 与 action=install|uninstall|update"})
+		return
+	}
+	if !keyRe.MatchString(id) { // 删除类操作的 id 必须是干净 key：禁 ../斜杠/大写（防 RemoveAll 越界）
+		jsonOut(w, 400, map[string]string{"error": "非法 id: " + id})
 		return
 	}
 	t := S.submit(id, kind, req.Params)
