@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -492,6 +493,28 @@ func (t *Task) logf(f string, a ...any) {
 			f.Close()
 		}
 	}
+}
+
+// diskFree /data 剩余（字节）与总量；非 Linux/取不到时 ok=false
+func diskFree() (free, total uint64, ok bool) {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs("/data", &st); err != nil {
+		return 0, 0, false
+	}
+	return st.Bavail * uint64(st.Bsize), st.Blocks * uint64(st.Bsize), true
+}
+
+// diskWatch 任务开始时的水位播报；低于阈值(300M)返回告警文案供调用方决定是否熔断
+func diskWatch(t *Task, kind string) (free uint64) {
+	f, tot, ok := diskFree()
+	if !ok {
+		return 0
+	}
+	t.logf("磁盘水位[%s]: /data 剩 %.1fG / 共 %.1fG", kind, float64(f)/(1<<30), float64(tot)/(1<<30))
+	if f < 300*(1<<20) {
+		t.logf("⚠ 磁盘告急：/data 剩余不足 300M，装不了大镜像，先清一清（旧镜像 docker image prune / 卸载不再用的应用）")
+	}
+	return f
 }
 
 type Server struct {
@@ -984,6 +1007,9 @@ func ensureImage(t *Task, img string) error {
 }
 
 func doInstall(t *Task) error {
+	if f := diskWatch(t, "安装前"); f > 0 && f < 150*(1<<20) {
+		return fmt.Errorf("磁盘熔断：/data 仅剩 %.0fM，不足以安全安装（历史上有大镜像撑爆机器的事故）；清理后重试", float64(f)/(1<<20))
+	}
 	cat, err := loadCatalog()
 	if err != nil {
 		return err
@@ -1065,6 +1091,7 @@ func doInstall(t *Task) error {
 }
 
 func doUninstall(t *Task) error {
+	diskWatch(t, "卸载前")
 	cat, _ := loadCatalog()
 	var m *Manifest
 	if cat != nil {
@@ -1093,6 +1120,7 @@ func doUninstall(t *Task) error {
 }
 
 func doUpdate(t *Task) error {
+	diskWatch(t, "更新前")
 	cat, err := loadCatalog()
 	if err != nil {
 		return err
@@ -1257,6 +1285,11 @@ func apiApps(w http.ResponseWriter, r *http.Request) {
 		jsonOut(w, 500, map[string]string{"error": err.Error()})
 		return
 	}
+	freeGB := -1.0
+	if f, tot, ok := diskFree(); ok {
+		freeGB = float64(int(float64(f)/(1<<30)*10)) / 10
+		_ = tot
+	}
 	st := dockerState()
 	list, _ := readList()
 	type view struct {
@@ -1283,7 +1316,7 @@ func apiApps(w http.ResponseWriter, r *http.Request) {
 		}
 		apps = append(apps, view{Manifest: m, Container: st[cn], Running: st[cn] == "running", Registered: reg, VendorUninstalled: vu})
 	}
-	jsonOut(w, 200, map[string]any{"apps": apps, "nasIP": C.nasIP})
+	jsonOut(w, 200, map[string]any{"apps": apps, "nasIP": C.nasIP, "diskFreeGB": freeGB})
 }
 
 func apiAction(w http.ResponseWriter, r *http.Request) {

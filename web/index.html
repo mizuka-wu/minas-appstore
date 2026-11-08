@@ -68,7 +68,7 @@ input:focus{outline:none;border-color:var(--acc2)}
   <button class="gear" onclick="pullCat()" title="从远程货架刷新清单">🔄</button>
   <button class="gear" onclick="tgTok()">⚙️</button>
 </header>
-<div id="catinfo" style="font-size:12px;color:var(--sub);padding:2px 4px 8px"></div>
+<span id="diskbadge" style="float:right;margin-top:2px"></span><div id="catinfo" style="font-size:12px;color:var(--sub);padding:2px 4px 8px"></div>
 <div id="tokcfg"><div class="cfg">X-Store-Token（本地访问留空）</div>
   <input id="tok" placeholder="粘贴令牌"> 
   <button style="margin-top:8px" onclick="saveTok()">保存</button>
@@ -110,12 +110,14 @@ async function api(p,opt){opt=opt||{};opt.headers=Object.assign({'X-Store-Token'
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 async function pullCat(){try{const d=await api('api/catalog',{method:'POST'});alert(d.ok||('刷新失败: '+(d.error||'?')));loadCat();load();}catch(e){alert('刷新失败 '+e)}}
 async function loadCat(){try{const c=await api('api/catalog');document.getElementById('catinfo').textContent='货架 '+(c.sources||[]).join(' + ')+' · '+c.apps+' 商品 · 更新 '+c.updated;}catch(e){}}
+function diskBadge(gb){if(gb==null||gb<0)return'';const warn=gb<1;return '<span style="margin-left:6px;padding:1px 7px;border-radius:8px;font-size:11px;background:'+(warn?'#fde8e8':'#e6f4ea')+';color:'+(warn?'#c0392b':'#2c7a43')+'">💾 剩 '+gb+'G'+(warn?' ⚠':'')+'</span>'}
 async function load(){
   try{
   const d=await api('api/apps');
   if(d.error){throw new Error(d.error)}
   appCache={};(d.apps||[]).forEach(a=>appCache[a.id]=a);
   const nasIP=d.nasIP||'';
+  document.getElementById('diskbadge').innerHTML=diskBadge(d.diskFreeGB>=0?d.diskFreeGB:null);
   const card=a=>{
     const ps=(a.docker.ports[0]||'').split(':'),port=ps.length>=3?ps[1]:ps[0];
     const ctr=ps.length>=3?ps[2]:(ps.length===2?ps[1]:ps[0]);
