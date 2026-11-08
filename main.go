@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -89,7 +90,7 @@ type Manifest struct {
 	Archived    bool       `json:"archived,omitempty"`    // 下架：禁装，容器若在仍可卸载/可见
 	SubPathBase bool       `json:"subPathBase,omitempty"` // 应用只认根 base(<base href="/">)：反代走商店 /gate/ 重写 base
 	ProxyPrefix bool       `json:"proxyPrefix,omitempty"` // 应用感知子路径(读 X-Forwarded-Prefix，如 HA)：反代带上该头
-	OpenMode  string       `json:"openMode,omitempty"` // "redirect"=应用中心卡片经 cgi 跳转页直连容器端口（子路径反代做不了的应用：HA/Jellyfin 这类根绝对路径 SPA）
+	OpenMode    string     `json:"openMode,omitempty"`    // "redirect"=应用中心卡片经 cgi 跳转页直连容器端口（子路径反代做不了的应用：HA/Jellyfin 这类根绝对路径 SPA）
 	Docker      DockerSpec `json:"docker"`
 	Health      HealthSpec `json:"health"`
 	PostShell   string     `json:"postShell,omitempty"` // 可选后置钩子（自家店允许 shell）
@@ -191,6 +192,19 @@ func (s catSrc) String() string {
 }
 
 // validateCatalog 远端清单底线校验，坏清单不许落地
+// autoLanIP 用 UDP 拨号(不实际发包)探默认路由本机 IP——比写死可靠，NAS 换 IP 重启服务即自愈
+func autoLanIP() string {
+	conn, err := net.Dial("udp", "192.0.2.1:80")
+	if err != nil {
+		return "127.0.0.1"
+	}
+	defer conn.Close()
+	if a, ok := conn.LocalAddr().(*net.UDPAddr); ok {
+		return a.IP.String()
+	}
+	return "127.0.0.1"
+}
+
 func validateCatalog(b []byte) (*Catalog, error) {
 	var c Catalog
 	if json.Unmarshal(b, &c) != nil || c.SchemaVersion < 1 || len(c.Apps) == 0 {
@@ -809,12 +823,12 @@ func buildEntry(m *Manifest, v int) map[string]any {
 				"permission": []string{"admin"}, "widget": []any{},
 				// url 必须数组形——裸字符串会被客户端静默丢整卡(homebridge 首发中招)
 				"url": func() []any {
-				if m.OpenMode == "redirect" {
-					// 跳转型：入口指 cgi 跳转页（meta refresh 直连容器端口，手机 WebView 实证可用；PC 客户端会强升 https 白屏）
-					return []any{map[string]any{"dev_type": []int{1, 2, 3, 4}, "url": "/index.html"}}
-				}
-				return []any{map[string]any{"dev_type": []int{1, 2, 3, 4}, "url": "/"}}
-			}(),
+					if m.OpenMode == "redirect" {
+						// 跳转型：入口指 cgi 跳转页（meta refresh 直连容器端口，手机 WebView 实证可用；PC 客户端会强升 https 白屏）
+						return []any{map[string]any{"dev_type": []int{1, 2, 3, 4}, "url": "/index.html"}}
+					}
+					return []any{map[string]any{"dev_type": []int{1, 2, 3, 4}, "url": "/"}}
+				}(),
 				"sortid": sortid,
 			},
 		}
@@ -902,7 +916,6 @@ func writeFile(t *Task, path, content string, exec bool) error {
 
 func writePluginUI(t *Task, m *Manifest) error {
 	base := srcBase(m.ID)
-	target := fmt.Sprintf("http://%s:%s/", C.nasIP, hostPort(m))
 	idx := fmt.Sprintf("<!DOCTYPE html><html><head><meta charset=\"utf-8\">\n"+
 		"<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n"+
 		"<style>body{font-family:-apple-system,sans-serif;background:#f5f6f8;display:flex;align-items:center;justify-content:center;min-height:92vh;margin:0}"+
@@ -911,8 +924,9 @@ func writePluginUI(t *Task, m *Manifest) error {
 		"a.btn{display:block;background:#3b82f6;color:#fff;text-decoration:none;padding:12px;border-radius:10px;font-size:15px}"+
 		"code{display:block;color:#3b82f6;font-size:12px;margin-top:14px;word-break:break-all}</style></head>\n"+
 		"<body><div class=\"c\"><h3>%s</h3><p>需在 NAS 同一内网打开<br>连不上说明当前不在内网</p>"+
-		"<a class=\"btn\" href=\"%s\">打开 %s</a><code>%s</code></div></body></html>\n",
-		m.Name, target, m.Name, target)
+		"<a class=\"btn\" href=\"http://%s:%s/\">打开 %s</a><code>http://%s:%s/</code></div>\n"+
+		"<script>var h=location.hostname;if(h&&!/^127\\./.test(h)){var u='http://'+h+':%s/';document.querySelector('a.btn').href=u;document.querySelector('code').textContent=u}</script></html>\n",
+		m.Name, C.nasIP, hostPort(m), m.Name, C.nasIP, hostPort(m), hostPort(m))
 	cgi := "#!/bin/sh\n" +
 		"UI=\"" + filepath.Join(srcBase(m.ID), "ui") + "\"\n" +
 		"if [ -z \"$FILEURI\" ] || [ \"$FILEURI\" = \"index.html\" ]; then\n" +
@@ -1659,6 +1673,9 @@ func main() {
 	flag.StringVar(&C.dockerBin, "docker", "/data/docker/docker", "docker 二进制")
 	flag.StringVar(&C.uid, "uid", os.Getenv("MINAS_UID"), "米家数字 UID")
 	flag.StringVar(&C.nasIP, "nasip", os.Getenv("MINAS_IP"), "NAS 局域网 IP")
+	if C.nasIP == "" {
+		C.nasIP = autoLanIP() // 没配就不写死：默认路由出口的本机 IP
+	}
 	flag.StringVar(&C.token, "token", os.Getenv("STORE_TOKEN"), "API 令牌（空=不校验）")
 	flag.StringVar(&C.plugindir, "plugindir", "/data/plugin", "插件根")
 	flag.StringVar(&C.assets, "assets", "/data/apps/store", "商店资产/日志目录")
