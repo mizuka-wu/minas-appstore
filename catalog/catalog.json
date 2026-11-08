@@ -1,1 +1,271 @@
-{"schemaVersion":1,"apps":[{"id":"anirss","name":"AniRSS","desc":"番剧 RSS 订阅+自动追更+资源搬移（真实监听 7789，EXPOSE 8300 是障眼）","version":"latest","registerId":901,"iconFile":"anirss.png","docker":{"image":"wushuo894/ani-rss:latest","ports":["8300:7789"],"volumes":["{{DATA}}/config:/app/config","{{POOL}}:/media"],"env":{"TZ":"Asia/Shanghai"},"memory":"512m","cpus":"1.5"},"health":{"url":"http://127.0.0.1:8300/","timeoutSec":180}},{"id":"qbittorrent","name":"qBittorrent","desc":"BT/磁力下载。安装时设 WebUI 固定密码与默认保存路径，装完即用，无临时密码环节","version":"latest","registerId":902,"iconFile":"qbittorrent.png","params":[{"name":"QB_PASSWORD","label":"WebUI 密码（admin 登录用）","type":"password","required":true},{"name":"QB_SAVE_PATH","label":"默认保存路径（容器内路径，用户库根=/media，如 /media/番剧、/media/downloads）","default":"/media/番剧"}],"docker":{"image":"lscr.io/linuxserver/qbittorrent:latest","ports":["8200:8200"],"volumes":["{{DATA}}/config:/config","{{POOL}}:/media"],"env":{"PGID":"0","PUID":"0","TZ":"Asia/Shanghai","WEBUI_PORT":"8200"},"memory":"512m","cpus":"1.5"},"health":{"url":"http://127.0.0.1:8200/","timeoutSec":300},"postShell":"SP='{{ENV:QB_SAVE_PATH}}'; case \"$SP\" in /media/*) : ;; *) echo \"⚠ 保存路径 $SP 不在 /media 用户库树内(影音库看不见)，改用 /media/番剧\"; SP=/media/番剧 ;; esac; sleep 3; TMP=$( {{DOCKER}} logs qbittorrent 2\u003e\u00261 | grep -i 'temporary password' | tail -1 | awk '{print $NF}' ); J=/tmp/.qbcj-$$; curl -s --max-time 10 -c $J -X POST --data-urlencode 'username=admin' --data-urlencode \"password=$TMP\" http://127.0.0.1:8200/api/v2/auth/login \u003e/dev/null \u0026\u0026 curl -s --max-time 10 -b $J -X POST --data-urlencode 'json={\"webui_password\":\"{{ENV:QB_PASSWORD}}\",\"webui_password_save\":true}' http://127.0.0.1:8200/api/v2/app/setPreferences \u0026\u0026 curl -s --max-time 10 -b $J -X POST --data-urlencode 'json={\"save_path\":\"$SP\"}' http://127.0.0.1:8200/api/v2/app/setPreferences \u003e/dev/null; curl -s --max-time 10 -b $J http://127.0.0.1:8200/api/v2/app/defaultSavePath; rm -f $J; echo ' ← WebUI 密码与保存路径已按安装参数设置'"},{"id":"cftunnel","name":"Cloudflare Tunnel","desc":"免公网IP免端口映射，把 NAS 服务经 Cloudflare 定点暴露（Zero Trust 远程托管隧道）。装前在 CF 后台建 Tunnel 复制 token","version":"latest","registerId":903,"iconFile":"cftunnel.png","params":[{"name":"CF_TUNNEL_TOKEN","label":"Tunnel Token（CF Zero Trust → Networks → Tunnels 复制）","type":"password","required":true}],"beta":true,"docker":{"image":"cloudflare/cloudflared:latest","command":["tunnel","--no-autoupdate","run","--token","{{ENV:CF_TUNNEL_TOKEN}}"],"ports":["127.0.0.1:20240:20000"],"volumes":null,"memory":"64m","cpus":"0.5"},"health":{"url":"http://127.0.0.1:20240/ready","timeoutSec":240},"postShell":"echo '隧道就绪后在 CF Zero Trust 配 Public Hostname 指向 NAS 服务；metrics: http://{{NAS_IP}}:20240'"},{"id":"homebridge","name":"Homebridge (+miot)","desc":"已下架。米家→HomeKit 桥接方案已被 Home Assistant(自带米家集成)取代；曾装过且残留容器的仍可在此卸载清理","version":"latest","registerId":904,"iconFile":"homebridge.png","archived":true,"subPathBase":true,"docker":{"image":"homebridge/homebridge:legacy","network":"host","ports":["8581"],"volumes":["{{DATA}}:/homebridge"],"env":{"ENABLE_AVAHI":"1","TZ":"Asia/Shanghai"},"memory":"384m","cpus":"1.0"},"health":{"url":"http://127.0.0.1:8581/","timeoutSec":600},"postShell":"{{DOCKER}} exec homebridge npm --prefix /var/lib/homebridge install homebridge-miot \u0026\u0026 {{DOCKER}} restart homebridge \u0026\u0026 echo 'homebridge-miot 已装好，去 UI(:8581) 配插件即可'"},{"id":"homeassistant","name":"Home Assistant","desc":"β 未在 MINAS 实测。智能家居中枢：一体自带米家集成(xiaomi-miot)，可再经 HomeKit Bridge 桥给苹果家庭。host 网络 :8123，数据库放 pool 盘护 eMMC。登录配置建议电脑浏览器","version":"stable","registerId":908,"iconFile":"homeassistant.png","beta":true,"docker":{"image":"homeassistant/home-assistant:stable","network":"host","ports":["8123"],"volumes":["{{DATA}}/config:/config","{{POOL}}/.ha-db:/db","{{POOL}}:/media"],"env":{"TZ":"Asia/Shanghai"},"memory":"768m","cpus":"2.0"},"health":{"url":"http://127.0.0.1:8123/","timeoutSec":600},"postShell":"{{DOCKER}} exec homeassistant pip install --quiet hass-xiaomi-miot \u0026\u0026 printf '\\nrecorder:\\n  db_url: sqlite:////db/hass_v2.db\\n' \u003e\u003e /config/configuration.yaml \u0026\u0026 {{DOCKER}} restart homeassistant \u0026\u0026 echo '米家集成已装好，去 :8123 设置→设备与集成→Xiaomi Miot 登录'"},{"id":"emby","name":"Emby","desc":"影音库服务器，媒体走用户库树 /media(影音库同源可见)，网页端 :8600","version":"latest","registerId":905,"iconFile":"emby.png","docker":{"image":"amilys/embyserver:latest","ports":["8600:8096"],"volumes":["{{DATA}}/config:/config","{{POOL}}:/media"],"env":{"TZ":"Asia/Shanghai"},"memory":"1g","cpus":"2.0"},"health":{"url":"http://127.0.0.1:8600/web/index.html","timeoutSec":240},"postShell":"echo '装完去 :8600 建库，媒体根目录选 /media(=用户库树)'"},{"id":"jellyfin","name":"Jellyfin","desc":"β 未在 MINAS 实测。开源影音库服务器，媒体走用户库树 /media(影音库同源可见)，网页端 :8700","version":"latest","registerId":906,"iconFile":"jellyfin.png","beta":true,"docker":{"image":"jellyfin/jellyfin:latest","ports":["8700:8096"],"volumes":["{{DATA}}/config:/config","{{POOL}}:/media"],"env":{"TZ":"Asia/Shanghai"},"memory":"1g","cpus":"2.0"},"health":{"url":"http://127.0.0.1:8700/web/","timeoutSec":240},"postShell":"echo '装完去 :8700 建库，媒体根目录选 /media(=用户库树)'"},{"id":"alist","name":"AList","desc":"β 未在 MINAS 实测。把网盘(115/阿里/OneDrive…)挂载成本地目录与 WebDAV，配 qB 下载或给影音库补源，网页端 :8800","version":"latest","registerId":907,"iconFile":"alist.png","params":[{"name":"ALIST_ADMIN_PASSWORD","label":"AList 管理员(admin)密码","type":"password","required":true}],"beta":true,"docker":{"image":"xlist/alist:latest","ports":["8800:5244"],"volumes":["{{DATA}}:/opt/alist/data"],"env":{"PGID":"0","PUID":"0","TZ":"Asia/Shanghai"},"memory":"256m","cpus":"1.0"},"health":{"url":"http://127.0.0.1:8800/ping","timeoutSec":180},"postShell":"sleep 5; {{DOCKER}} exec alist /app/alist admin set '{{ENV:ALIST_ADMIN_PASSWORD}}' \u0026\u0026 echo 'admin 密码已设为安装参数；去 :8800 登录加网盘存储'"}]}
+{
+  "schemaVersion": 1,
+  "apps": [
+    {
+      "id": "anirss",
+      "name": "AniRSS",
+      "desc": "番剧 RSS 订阅+自动追更+资源搬移（真实监听 7789，EXPOSE 8300 是障眼）",
+      "version": "latest",
+      "registerId": 901,
+      "iconFile": "anirss.png",
+      "docker": {
+        "image": "wushuo894/ani-rss:latest",
+        "ports": [
+          "8300:7789"
+        ],
+        "volumes": [
+          "{{DATA}}/config:/app/config",
+          "{{POOL}}:/media"
+        ],
+        "env": {
+          "TZ": "Asia/Shanghai"
+        },
+        "memory": "512m",
+        "cpus": "1.5"
+      },
+      "health": {
+        "url": "http://127.0.0.1:8300/",
+        "timeoutSec": 180
+      }
+    },
+    {
+      "id": "qbittorrent",
+      "name": "qBittorrent",
+      "desc": "BT/磁力下载。安装时设 WebUI 固定密码与默认保存路径，装完即用，无临时密码环节",
+      "version": "latest",
+      "registerId": 902,
+      "iconFile": "qbittorrent.png",
+      "params": [
+        {
+          "name": "QB_PASSWORD",
+          "label": "WebUI 密码（admin 登录用）",
+          "type": "password",
+          "required": true
+        },
+        {
+          "name": "QB_SAVE_PATH",
+          "label": "默认保存路径（容器内路径，用户库根=/media，如 /media/番剧、/media/downloads）",
+          "default": "/media/番剧"
+        }
+      ],
+      "docker": {
+        "image": "lscr.io/linuxserver/qbittorrent:latest",
+        "ports": [
+          "8200:8200"
+        ],
+        "volumes": [
+          "{{DATA}}/config:/config",
+          "{{POOL}}:/media"
+        ],
+        "env": {
+          "PGID": "0",
+          "PUID": "0",
+          "TZ": "Asia/Shanghai",
+          "WEBUI_PORT": "8200"
+        },
+        "memory": "512m",
+        "cpus": "1.5"
+      },
+      "health": {
+        "url": "http://127.0.0.1:8200/",
+        "timeoutSec": 300
+      },
+      "postShell": "SP='{{ENV:QB_SAVE_PATH}}'; case \"$SP\" in /media/*) : ;; *) echo \"⚠ 保存路径 $SP 不在 /media 用户库树内(影音库看不见)，改用 /media/番剧\"; SP=/media/番剧 ;; esac; sleep 3; TMP=$( {{DOCKER}} logs qbittorrent 2>&1 | grep -i 'temporary password' | tail -1 | awk '{print $NF}' ); J=/tmp/.qbcj-$$; curl -s --max-time 10 -c $J -X POST --data-urlencode 'username=admin' --data-urlencode \"password=$TMP\" http://127.0.0.1:8200/api/v2/auth/login >/dev/null && curl -s --max-time 10 -b $J -X POST --data-urlencode 'json={\"webui_password\":\"{{ENV:QB_PASSWORD}}\",\"webui_password_save\":true}' http://127.0.0.1:8200/api/v2/app/setPreferences && curl -s --max-time 10 -b $J -X POST --data-urlencode 'json={\"save_path\":\"$SP\"}' http://127.0.0.1:8200/api/v2/app/setPreferences >/dev/null; curl -s --max-time 10 -b $J http://127.0.0.1:8200/api/v2/app/defaultSavePath; rm -f $J; echo ' ← WebUI 密码与保存路径已按安装参数设置'"
+    },
+    {
+      "id": "cftunnel",
+      "name": "Cloudflare Tunnel",
+      "desc": "免公网IP免端口映射，把 NAS 服务经 Cloudflare 定点暴露（Zero Trust 远程托管隧道）。装前在 CF 后台建 Tunnel 复制 token",
+      "version": "latest",
+      "registerId": 903,
+      "iconFile": "cftunnel.png",
+      "params": [
+        {
+          "name": "CF_TUNNEL_TOKEN",
+          "label": "Tunnel Token（CF Zero Trust → Networks → Tunnels 复制）",
+          "type": "password",
+          "required": true
+        }
+      ],
+      "beta": true,
+      "docker": {
+        "image": "cloudflare/cloudflared:latest",
+        "command": [
+          "tunnel",
+          "--no-autoupdate",
+          "run",
+          "--token",
+          "{{ENV:CF_TUNNEL_TOKEN}}"
+        ],
+        "ports": [
+          "127.0.0.1:20240:20000"
+        ],
+        "volumes": null,
+        "memory": "64m",
+        "cpus": "0.5"
+      },
+      "health": {
+        "url": "http://127.0.0.1:20240/ready",
+        "timeoutSec": 240
+      },
+      "postShell": "echo '隧道就绪后在 CF Zero Trust 配 Public Hostname 指向 NAS 服务；metrics: http://{{NAS_IP}}:20240'"
+    },
+    {
+      "id": "homebridge",
+      "name": "Homebridge (+miot)",
+      "desc": "已下架。米家→HomeKit 桥接方案已被 Home Assistant(自带米家集成)取代；曾装过且残留容器的仍可在此卸载清理",
+      "version": "latest",
+      "registerId": 904,
+      "iconFile": "homebridge.png",
+      "archived": true,
+      "subPathBase": true,
+      "docker": {
+        "image": "homebridge/homebridge:legacy",
+        "network": "host",
+        "ports": [
+          "8581"
+        ],
+        "volumes": [
+          "{{DATA}}:/homebridge"
+        ],
+        "env": {
+          "ENABLE_AVAHI": "1",
+          "TZ": "Asia/Shanghai"
+        },
+        "memory": "384m",
+        "cpus": "1.0"
+      },
+      "health": {
+        "url": "http://127.0.0.1:8581/",
+        "timeoutSec": 600
+      },
+      "postShell": "{{DOCKER}} exec homebridge npm --prefix /var/lib/homebridge install homebridge-miot && {{DOCKER}} restart homebridge && echo 'homebridge-miot 已装好，去 UI(:8581) 配插件即可'"
+    },
+    {
+      "id": "homeassistant",
+      "name": "Home Assistant",
+      "desc": "β 未在 MINAS 实测。智能家居中枢：一体自带米家集成(xiaomi-miot)，可再经 HomeKit Bridge 桥给苹果家庭。host 网络 :8123，数据库放 pool 盘护 eMMC。登录配置建议电脑浏览器",
+      "version": "stable",
+      "registerId": 908,
+      "iconFile": "homeassistant.png",
+      "beta": true,
+      "docker": {
+        "image": "homeassistant/home-assistant:stable",
+        "network": "host",
+        "ports": [
+          "8123"
+        ],
+        "volumes": [
+          "{{DATA}}/config:/config",
+          "{{POOL}}/.ha-db:/db",
+          "{{POOL}}:/media"
+        ],
+        "env": {
+          "TZ": "Asia/Shanghai"
+        },
+        "memory": "768m",
+        "cpus": "2.0"
+      },
+      "health": {
+        "url": "http://127.0.0.1:8123/",
+        "timeoutSec": 600
+      },
+      "postShell": "{{DOCKER}} exec homeassistant sh -c 'mkdir -p /config/custom_components && [ -f /config/custom_components/xiaomi_miot/__init__.py ] || { curl -fsSL -o /tmp/miot.tgz https://codeload.github.com/al-one/hass-xiaomi-miot/tar.gz/refs/heads/master && tar -xzf /tmp/miot.tgz -C /tmp && cp -r /tmp/hass-xiaomi-miot-master/custom_components/xiaomi_miot /config/custom_components/ && rm -rf /tmp/miot.tgz /tmp/hass-xiaomi-miot-master; }; python -m pip install -q -i https://mirrors.aliyun.com/pypi/simple/ miot'; grep -q db_url /data/apps/homeassistant/config/configuration.yaml 2>/dev/null || printf '\\nrecorder:\\n  db_url: sqlite:////db/hass_v2.db\\n' >> /data/apps/homeassistant/config/configuration.yaml; {{DOCKER}} restart homeassistant"
+    },
+    {
+      "id": "emby",
+      "name": "Emby",
+      "desc": "影音库服务器，媒体走用户库树 /media(影音库同源可见)，网页端 :8600",
+      "version": "latest",
+      "registerId": 905,
+      "iconFile": "emby.png",
+      "docker": {
+        "image": "amilys/embyserver:latest",
+        "ports": [
+          "8600:8096"
+        ],
+        "volumes": [
+          "{{DATA}}/config:/config",
+          "{{POOL}}:/media"
+        ],
+        "env": {
+          "TZ": "Asia/Shanghai"
+        },
+        "memory": "1g",
+        "cpus": "2.0"
+      },
+      "health": {
+        "url": "http://127.0.0.1:8600/web/index.html",
+        "timeoutSec": 240
+      },
+      "postShell": "echo '装完去 :8600 建库，媒体根目录选 /media(=用户库树)'"
+    },
+    {
+      "id": "jellyfin",
+      "name": "Jellyfin",
+      "desc": "β 未在 MINAS 实测。开源影音库服务器，媒体走用户库树 /media(影音库同源可见)，网页端 :8700",
+      "version": "latest",
+      "registerId": 906,
+      "iconFile": "jellyfin.png",
+      "beta": true,
+      "docker": {
+        "image": "jellyfin/jellyfin:latest",
+        "ports": [
+          "8700:8096"
+        ],
+        "volumes": [
+          "{{DATA}}/config:/config",
+          "{{POOL}}:/media"
+        ],
+        "env": {
+          "TZ": "Asia/Shanghai"
+        },
+        "memory": "1g",
+        "cpus": "2.0"
+      },
+      "health": {
+        "url": "http://127.0.0.1:8700/web/",
+        "timeoutSec": 240
+      },
+      "postShell": "echo '装完去 :8700 建库，媒体根目录选 /media(=用户库树)'"
+    },
+    {
+      "id": "alist",
+      "name": "AList",
+      "desc": "β 未在 MINAS 实测。把网盘(115/阿里/OneDrive…)挂载成本地目录与 WebDAV，配 qB 下载或给影音库补源，网页端 :8800",
+      "version": "latest",
+      "registerId": 907,
+      "iconFile": "alist.png",
+      "params": [
+        {
+          "name": "ALIST_ADMIN_PASSWORD",
+          "label": "AList 管理员(admin)密码",
+          "type": "password",
+          "required": true
+        }
+      ],
+      "beta": true,
+      "docker": {
+        "image": "xlist/alist:latest",
+        "ports": [
+          "8800:5244"
+        ],
+        "volumes": [
+          "{{DATA}}:/opt/alist/data"
+        ],
+        "env": {
+          "PGID": "0",
+          "PUID": "0",
+          "TZ": "Asia/Shanghai"
+        },
+        "memory": "256m",
+        "cpus": "1.0"
+      },
+      "health": {
+        "url": "http://127.0.0.1:8800/ping",
+        "timeoutSec": 180
+      },
+      "postShell": "sleep 5; {{DOCKER}} exec alist /app/alist admin set '{{ENV:ALIST_ADMIN_PASSWORD}}' && echo 'admin 密码已设为安装参数；去 :8800 登录加网盘存储'"
+    }
+  ]
+}
