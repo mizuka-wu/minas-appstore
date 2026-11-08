@@ -89,6 +89,7 @@ type Manifest struct {
 	Archived    bool       `json:"archived,omitempty"`    // 下架：禁装，容器若在仍可卸载/可见
 	SubPathBase bool       `json:"subPathBase,omitempty"` // 应用只认根 base(<base href="/">)：反代走商店 /gate/ 重写 base
 	ProxyPrefix bool       `json:"proxyPrefix,omitempty"` // 应用感知子路径(读 X-Forwarded-Prefix，如 HA)：反代带上该头
+	OpenMode  string       `json:"openMode,omitempty"` // "redirect"=应用中心卡片经 cgi 跳转页直连容器端口（子路径反代做不了的应用：HA/Jellyfin 这类根绝对路径 SPA）
 	Docker      DockerSpec `json:"docker"`
 	Health      HealthSpec `json:"health"`
 	PostShell   string     `json:"postShell,omitempty"` // 可选后置钩子（自家店允许 shell）
@@ -807,7 +808,13 @@ func buildEntry(m *Manifest, v int) map[string]any {
 				"type": "url", "dev_type": []int{1, 2, 3, 4},
 				"permission": []string{"admin"}, "widget": []any{},
 				// url 必须数组形——裸字符串会被客户端静默丢整卡(homebridge 首发中招)
-				"url":    []any{map[string]any{"dev_type": []int{1, 2, 3, 4}, "url": "/"}},
+				"url": func() []any {
+				if m.OpenMode == "redirect" {
+					// 跳转型：入口指 cgi 跳转页（meta refresh 直连容器端口，手机 WebView 实证可用；PC 客户端会强升 https 白屏）
+					return []any{map[string]any{"dev_type": []int{1, 2, 3, 4}, "url": "/index.html"}}
+				}
+				return []any{map[string]any{"dev_type": []int{1, 2, 3, 4}, "url": "/"}}
+			}(),
 				"sortid": sortid,
 			},
 		}
@@ -823,6 +830,22 @@ func buildEntry(m *Manifest, v int) map[string]any {
 // = 精确 location 把无尾斜杠 301 到有斜杠(否则 SPA 相对路径基准歪 + 落 vendor fcgi)；
 // ^~ 前缀压制厂商 regex；no-store 防 WebView 缓存旧壳。语法自检失败自动摘除。
 func writePluginNginx(t *Task, m *Manifest) error {
+	if m.OpenMode == "redirect" {
+		// 跳转型应用不占 vendor 路径：有旧 conf 就拆掉（模式切换要能双向走）
+		confPath := "/etc/nginx/conf.d/luci/" + m.ID + "-uc.conf"
+		if !C.dryRun {
+			if _, err := os.Stat(confPath); err == nil {
+				if err := os.Remove(confPath); err != nil {
+					return err
+				}
+				t.logf("redirect 模式：已拆除同源反代 %s", confPath)
+				runCmd(t, "sh", "-c", "nginx -t >/dev/null 2>&1 && nginx -s reload || true")
+			} else {
+				t.logf("redirect 模式：无需同源反代")
+			}
+		}
+		return nil
+	}
 	hp := hostPort(m)
 	if hp == "" {
 		t.logf("无发布端口，跳过反代(应用中心入口走 cgi 重定向)")

@@ -144,7 +144,7 @@
     {
       "id": "homeassistant",
       "name": "Home Assistant",
-      "desc": "β 未在 MINAS 实测。智能家居中枢：一体自带米家集成(xiaomi-miot)，可再经 HomeKit Bridge 桥给苹果家庭。host 网络 :8123，数据库放 pool 盘护 eMMC。登录配置建议电脑浏览器",
+      "desc": "智能家居中枢：一体自带米家集成(xiaomi-miot)，可再经 HomeKit Bridge 桥给苹果家庭。host 网络 :8123，数据库放 pool 盘护 eMMC。应用中心点开=跳转直连(手机可用)；PC 端请用浏览器开 http://NAS:8123（HA 不支持子路径挂载）",
       "version": "stable",
       "registerId": 908,
       "iconFile": "homeassistant.png",
@@ -171,7 +171,7 @@
         "timeoutSec": 600
       },
       "postShell": "{{DOCKER}} exec homeassistant sh -c 'mkdir -p /config/custom_components && [ -f /config/custom_components/xiaomi_miot/__init__.py ] || { curl -fsSL -o /tmp/miot.tgz https://codeload.github.com/al-one/hass-xiaomi-miot/tar.gz/refs/heads/master && tar -xzf /tmp/miot.tgz -C /tmp && cp -r /tmp/hass-xiaomi-miot-master/custom_components/xiaomi_miot /config/custom_components/ && rm -rf /tmp/miot.tgz /tmp/hass-xiaomi-miot-master; }; python -m pip install -q -i https://mirrors.aliyun.com/pypi/simple/ miot; python3 -c \"import json;p='/config/.storage/http';d=json.load(open(p));s=d['data']['stable'];s['use_x_forwarded_for']=True;s['trusted_proxies']=['127.0.0.1/32'];json.dump(d,open(p,'w'),indent=2)\" 2>/dev/null || true'; grep -q db_url /data/apps/homeassistant/config/configuration.yaml 2>/dev/null || printf '\\nrecorder:\\n  db_url: sqlite:////db/hass_v2.db\\n' >> /data/apps/homeassistant/config/configuration.yaml; {{DOCKER}} restart homeassistant",
-      "proxyPrefix": true
+      "openMode": "redirect"
     },
     {
       "id": "emby",
@@ -204,7 +204,7 @@
     {
       "id": "jellyfin",
       "name": "Jellyfin",
-      "desc": "β 未在 MINAS 实测。开源影音库服务器，媒体走用户库树 /media(影音库同源可见)，网页端 :8700",
+      "desc": "β 未在 MINAS 实测。开源影音库服务器，媒体走用户库树 /media(影音库同源可见)，网页端 :8700。应用中心点开=跳转直连(手机可用)，PC 端浏览器开 http://NAS:8700",
       "version": "latest",
       "registerId": 906,
       "iconFile": "jellyfin.png",
@@ -228,7 +228,8 @@
         "url": "http://127.0.0.1:8700/web/",
         "timeoutSec": 240
       },
-      "postShell": "echo '装完去 :8700 建库，媒体根目录选 /media(=用户库树)'"
+      "postShell": "echo '装完去 :8700 建库，媒体根目录选 /media(=用户库树)'",
+      "openMode": "redirect"
     },
     {
       "id": "alist",
