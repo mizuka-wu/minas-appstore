@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📦 应用配方问题（装不上/白屏/请求下架）
+    url: https://github.com/mizuka-wu/minas-appstore-catalog/issues
+    about: 各应用的 catalog 条目与图标住在货架仓，配方问题报那边
+  - name: 📖 先查文档（大概率是已知机制）
+    url: https://github.com/mizuka-wu/minas-appstore#readme
+    about: 原理篇讲清卡片/WebView/出网/自愈；egress-nat.md 与 add-your-app.md 是两个深挖专文

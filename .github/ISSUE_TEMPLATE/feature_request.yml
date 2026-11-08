@@ -1,0 +1,21 @@
+name: ✨ 功能建议 / Feature request
+description: 给商店本体提功能（新字段、UI 改进、新机制…）
+labels: [enhancement]
+body:
+  - type: markdown
+    value: |
+      应用配方类（想上架某应用/改某配方）请去货架仓 [minas-appstore-catalog](https://github.com/mizuka-wu/minas-appstore-catalog/issues)。
+      ⚠️ 提案里的示例值别带真实 IP/UID/token。
+  - type: textarea
+    id: why
+    attributes:
+      label: 想解决什么问题（场景优先，方案其次）
+      placeholder: 例：想在商店里直接看容器日志，现在要开终端 docker logs
+    validations:
+      required: true
+  - type: textarea
+    id: how
+    attributes:
+      label: 你设想的形态（可选，API/UI 草图都行）
+    validations:
+      required: false

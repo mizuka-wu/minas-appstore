@@ -1,0 +1,76 @@
+name: 🐛 Bug 报告 / Bug report
+description: 商店本体出问题（装不上、卡片不显示、UI 异常、崩溃…）
+labels: [bug]
+body:
+  - type: markdown
+    value: |
+      提单前先做两件事：
+      1. **对照文档自检**——白屏/黑屏、卡片不显示、图标旧、容器没外网，多数是已知机制（打开模式选错 / 米家缓存 / 出网规则被洗），先读 README「原理」篇与 docs/egress-nat.md。
+      2. **分清归属**——某款应用装不上/装上不能用 → 去货架仓 [minas-appstore-catalog](https://github.com/mizuka-wu/minas-appstore-catalog/issues)（配方在那边）；商店本体（安装流程、UI、注册、自愈）→ 报这里。
+
+      ⚠️ **脱敏**：贴日志前抹掉真实 NAS IP、米家 UID、密码、token（统一写 `<NAS_IP>` `<UID>`）。
+  - type: textarea
+    id: symptom
+    attributes:
+      label: 现象（什么时候开始、点了什么、看到什么）
+      placeholder: 例：点商店卡片 WebView 404；直连 http://<NAS_IP>:8400 正常。此前发生过 NAS 断电重启。
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 出事的是哪一段
+      options:
+        - 安装/更新/卸载流程
+        - 应用中心卡片/图标
+        - WebView 打开应用
+        - 商店 UI 页面
+        - 服务起不来/不自启
+        - 出网（容器连不上外网）
+        - 其他/不确定
+    validations:
+      required: true
+  - type: input
+    id: store-version
+    attributes:
+      label: 商店版本
+      description: 商店 UI 顶栏，或 `ls -l /data/apps/store/store` 时间；自编译给 commit
+      placeholder: v1.2.0 / Release 下载 / 自编译 @ abc1234
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: 机型与系统版本
+      placeholder: 小米智能存储 x 盘位 / 固件 x.y.z
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 关键日志（贴之前再确认一遍已脱敏！）
+      description: |
+        抓取命令：
+        ```
+        tail -50 /data/apps/store/store.log
+        curl -s http://<NAS_IP>:8400/api/apps | head -c 500
+        cat /data/apps/store/tasks/<最新任务目录>/*.log
+        ```
+      render: shell
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 已做过的基础自检
+      options:
+        - label: 杀掉米家 App 后台重进过（客户端缓存很顽固，图标/卡片问题先排除这条）
+          required: false
+        - label: 等过至少 5 分钟（自愈 ticker 周期，厂商洗掉的入口会在周期内补回）
+          required: false
+        - label: "`curl http://<NAS_IP>:8400/api/apps` 返回 200"
+          required: false
+        - label: 直连应用容器端口本身是通的（redirect 模式应用尤其要分清两端）
+          required: false
+        - label: "`iptables -t nat -S POSTROUTING` 有 MASQUERADE（bridge 出网问题才查）"
+          required: false

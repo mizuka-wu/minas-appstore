@@ -151,6 +151,18 @@ make build        # dist/store = linux/arm64
 部署细节（经 root shell 下发、二进制热替换姿势）见 `deploy/README.md`。
 ⚠️ 局域网 http.server 喂二进制时的经典事故：服务端进程 cwd 锁定启动时的目录，往别的目录 copy 新构建等于没喂——**部署后必须双端 md5 核验**。
 
+## 遇到问题？先走这张表
+
+| 症状 | 九成原因 | 去处 |
+|---|---|---|
+| 图标/卡片没变或消失 | 米家客户端缓存 / 厂商同步洗了（5 分钟自愈周期内会补回） | 杀米家后台重进；等 5 分钟 |
+| 点开应用白屏/404，直连容器端口正常 | 打开模式选错（配方问题） | [货架仓 issue](https://github.com/mizuka-wu/minas-appstore-catalog/issues) |
+| 容器 UI 打得开但下载/抓源超时 | bridge 出网规则被重启洗掉 | [docs/egress-nat.md](docs/egress-nat.md) |
+| 镜像装不上报 `invalid tar header` | zstd 兼容（docker 20.10） | [docs/add-your-app.md](docs/add-your-app.md) §四 |
+| 商店本体异常（UI 挂、服务不起、任何应用都装不上） | 引擎 bug | [引擎仓 issue 表单](https://github.com/mizuka-wu/minas-appstore/issues/new/choose) |
+
+提 issue 请走仓内表单——会自动要版本/日志/自检项；**贴日志前务必抹掉真实 IP/UID/密码/token**。
+
 ## 参考
 
 - [nijez/xiaomi-nas-plugin-market](https://github.com/nijez/xiaomi-nas-plugin-market)——流程参考（暂存→健康检查→写注册表→回滚、卸载保数据）；其全网签名分发模型与本机商店无关，且其 CDN 目录在国内 MINAS 上不稳定，本项目仅取其流程
