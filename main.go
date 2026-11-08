@@ -1332,9 +1332,9 @@ func doUpdate(t *Task) error {
 		return fmt.Errorf("catalog 中无 %s", t.AppID)
 	}
 	params, missP := resolvedParams(m, t.Params)
-	if len(missP) > 0 {
-		return fmt.Errorf("缺少必填参数: %v", missP)
-	}
+	// update 不强制必填参数：首装值已存于持久配置（conf/env），update 常不重传；
+	// 空值由 postShell 的 [ -n ] 守卫跳过（引擎侧曾因此把合法 update 卡死）
+	_ = missP
 	activeParams = params
 	if err := ensureEgress(t, m); err != nil {
 		return err

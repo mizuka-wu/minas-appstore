@@ -31,7 +31,7 @@
     {
       "id": "qbittorrent",
       "name": "qBittorrent",
-      "desc": "BT/磁力下载。安装时设 WebUI 固定密码与默认保存路径，装完即用，无临时密码环节",
+      "desc": "BT/磁力下载。安装时设 WebUI 固定密码与默认保存路径，装完即用，无临时密码环节。登录为传统表单模式（PC 桌面客户端/浏览器均可用）",
       "version": "latest",
       "registerId": 902,
       "iconFile": "qbittorrent.png",
@@ -63,14 +63,14 @@
           "TZ": "Asia/Shanghai",
           "WEBUI_PORT": "8200"
         },
-        "memory": "512m",
+        "memory": "768m",
         "cpus": "1.5"
       },
       "health": {
         "url": "http://127.0.0.1:8200/",
         "timeoutSec": 300
       },
-      "postShell": "SP='{{ENV:QB_SAVE_PATH}}'; case \"$SP\" in /media/*) : ;; *) echo \"⚠ 保存路径 $SP 不在 /media 用户库树内(影音库看不见)，改用 /media/番剧\"; SP=/media/番剧 ;; esac; sleep 3; TMP=$( {{DOCKER}} logs qbittorrent 2>&1 | grep -i 'temporary password' | tail -1 | awk '{print $NF}' ); J=/tmp/.qbcj-$$; curl -s --max-time 10 -c $J -X POST --data-urlencode 'username=admin' --data-urlencode \"password=$TMP\" http://127.0.0.1:8200/api/v2/auth/login >/dev/null && curl -s --max-time 10 -b $J -X POST --data-urlencode 'json={\"webui_password\":\"{{ENV:QB_PASSWORD}}\",\"webui_password_save\":true}' http://127.0.0.1:8200/api/v2/app/setPreferences && curl -s --max-time 10 -b $J -X POST --data-urlencode 'json={\"save_path\":\"$SP\"}' http://127.0.0.1:8200/api/v2/app/setPreferences >/dev/null; curl -s --max-time 10 -b $J http://127.0.0.1:8200/api/v2/app/defaultSavePath; rm -f $J; echo ' ← WebUI 密码与保存路径已按安装参数设置'"
+      "postShell": "SP='{{ENV:QB_SAVE_PATH}}'; case \"$SP\" in /media/*) : ;; *) echo \"⚠ 保存路径 $SP 不在 /media 用户库树内(影音库看不见)，改用 /media/番剧\"; SP=/media/番剧 ;; esac; sleep 3; TMP=$( {{DOCKER}} logs qbittorrent 2>&1 | grep -i 'temporary password' | tail -1 | awk '{print $NF}' ); PW='{{ENV:QB_PASSWORD}}'; J=/tmp/.qbcj-$$; for CAND in \"$TMP\" \"$PW\"; do [ -n \"$CAND\" ] || continue; curl -s --max-time 10 -c $J -X POST --data-urlencode 'username=admin' --data-urlencode \"password=$CAND\" http://127.0.0.1:8200/api/v2/auth/login | grep -qi ok && break; done; curl -s --max-time 10 -b $J -X POST --data-urlencode \"json={\\\"save_path\\\":\\\"$SP\\\"}\" http://127.0.0.1:8200/api/v2/app/setPreferences >/dev/null; [ -n \"$PW\" ] && curl -s --max-time 10 -b $J -X POST --data-urlencode \"json={\\\"webui_password\\\":\\\"$PW\\\",\\\"webui_password_save\\\":true}\" http://127.0.0.1:8200/api/v2/app/setPreferences >/dev/null; curl -s --max-time 10 -b $J http://127.0.0.1:8200/api/v2/app/defaultSavePath; rm -f $J; echo ' ← WebUI 登录与保存路径已确认（密码参数为空时不改密）'; F={{DATA}}/config/qBittorrent/qBittorrent.conf; grep -q 'AuthMethod' $F || { awk '{print} /^\\[Preferences\\]/{print \"WebUI\\\\AuthMethod=legacy\"}' $F > $F.t && mv $F.t $F; {{DOCKER}} restart qbittorrent >/dev/null 2>&1; sleep 4; echo 'WebUI\\AuthMethod=legacy 已注入(传统表单登录，PC/Electron 客户端兼容)'; }"
     },
     {
       "id": "cftunnel",
