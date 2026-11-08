@@ -31,7 +31,7 @@
 
 4. **自愈**（重要，厂商是敌对的）：厂商同步会**反复**洗掉 `/data/plugin` 农场、注册表条目、出网规则（触发时机包括你在手机上打开应用中心）。所以引擎启动 15s 后 + **每 5 分钟**跑一轮 `healSelf + healMissing`：容器还在而卡片/农场/反代/conf 没了 → 幂等重注入。出网同理（见下）。
 
-**bridge 容器出网**：MINAS 的 dockerd 配置是 `iptables:false`——端口映射（进方向）靠 docker-proxy 永远正常，但**出方向没人挂 MASQUERADE**，容器抓 RSS/下载全超时。商店开机自动补挂 `POSTROUTING MASQUERADE`（只增不删，UI 上删除按钮已禁——删了全体 bridge 容器断网）。host 网络应用（如 HA）免检。
+**bridge 容器出网**：见专文 [docs/egress-nat.md](docs/egress-nat.md)。MINAS 的 dockerd 配置是 `iptables:false`——端口映射（进方向）靠 docker-proxy 永远正常，但**出方向没人挂 MASQUERADE**，容器抓 RSS/下载全超时。商店开机自动补挂 `POSTROUTING MASQUERADE`（只增不删，UI 上删除按钮已禁——删了全体 bridge 容器断网）。host 网络应用（如 HA）免检。
 
 ## 安装（手动党）
 
@@ -101,7 +101,7 @@ MINAS 环境铁律（违反会出事故，务必遵守）：
 
 ## 上架一个新应用 = catalog.json 加一条
 
-字段手册 [docs/manifest.md](docs/manifest.md)，流程 [CONTRIBUTING.md](CONTRIBUTING.md)。要点：
+完整流程（自建货架仓、打开模式决策树、真实配方对照、验收清单）→ [docs/add-your-app.md](docs/add-your-app.md)；逐字段手册 → [docs/manifest.md](docs/manifest.md)。要点：
 
 - 模板变量：`{{DATA}}` `{{POOL}}` `{{NAS_IP}}` `{{UID}}` `{{DOCKER}}` `{{HOST_PORT}}`；用户要填的（密码/token/路径）声明 `params` → UI 弹表单，值经 `{{ENV:NAME}}` 注入，日志打码、API 不回显
 - 打开模式三选一（见上表），选错模式 = 白屏/404 地狱，先 `curl` 应用首页看资源形态
