@@ -2,6 +2,8 @@
 
 小米 NAS（MINAS / 小米智能存储）私有应用商店：**单 Go 二进制跑在 NAS 本机**，把任意 Docker 应用装进米家「应用中心」——有卡片、有图标、点开就是 Web UI。不依赖 SSH 常开、不依赖 GitHub CDN 分发、不搞签名信任体系，配置近乎零（连 NAS IP 都自动探测）。
 
+> 🔎 **你在找的是不是**：给小米 NAS（小米智能存储 / MINAS）装 **qBittorrent、Jellyfin、Emby、Home Assistant、Homebridge、AList、AniRSS** 这些第三方应用，让它们像群晖「套件中心」一样以卡片形式出现在米家 App 的「应用中心」里，点开就能用？本项目就是答案。可装应用清单见[官方货架 minas-appstore-catalog](https://github.com/mizuka-wu/minas-appstore-catalog)；实机教程与更新随发，小红书搜「小米NAS 应用商店」。
+
 - 引擎 = 本仓库（Go 单二进制，发 Release）
 - 官方货架 = [minas-appstore-catalog](https://github.com/mizuka-wu/minas-appstore-catalog)（纯数据仓，上新一款应用不需要动引擎）
 
